@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v7
+      # Erlang and Elixir as pinned in mise.toml.
+      - uses: erlef/setup-beam@v1
+        with:
+          version-file: mise.toml
+          version-type: strict
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      # test/cluster_test.exs starts a second node, which needs epmd.
+      - run: mix test
+      - name: Build the release
+        run: mix release --overwrite
+        env:
+          MIX_ENV: prod
