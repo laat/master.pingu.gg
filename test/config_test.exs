@@ -52,6 +52,38 @@ defmodule Exmaster.ConfigTest do
            ]
   end
 
+  test "a q2 and a gs listener on one address and port share a socket" do
+    q2gs = [protocol: Exmaster.Q2GS, ip: nil, port: 27900, label: nil, store: :exmaster_q2]
+
+    assert Config.listeners!("q3:27950,gs:27900,gsl:28900,q2:27900") == [
+             [
+               protocol: Exmaster.Q3.Master,
+               ip: nil,
+               port: 27950,
+               label: nil,
+               store: :exmaster_q3
+             ],
+             q2gs,
+             [
+               protocol: Exmaster.GS.ListServer,
+               ip: nil,
+               port: 28900,
+               label: nil,
+               store: :exmaster_gs
+             ]
+           ]
+
+    assert Config.listeners!("q2:127.0.0.1:27900,gs:127.0.0.1:27900") ==
+             [List.keyreplace(q2gs, :ip, 0, {:ip, {127, 0, 0, 1}})]
+
+    # On other addresses or ports they don't.
+    assert [[protocol: Exmaster.Q2.Master] ++ _, [protocol: Exmaster.GS.Master] ++ _] =
+             Config.listeners!("q2:127.0.0.1:27900,gs:127.0.0.2:27900")
+
+    assert [[protocol: Exmaster.Q2.Master] ++ _, [protocol: Exmaster.GS.Master] ++ _] =
+             Config.listeners!("q2:27900,gs:27901")
+  end
+
   test "each label has a store, shared by its listeners" do
     listeners = Config.listeners!("q3:27950,q3:27960=UrbanTerror,q3:[::1]:27960=UrbanTerror")
 

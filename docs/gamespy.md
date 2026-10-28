@@ -41,8 +41,9 @@ and lists without checking the client.
 | UDP 23000 | server: GameSpy queries (`game.gameSpyPort`) |
 | UDP 14690 | server: All-Seeing Eye queries |
 
-The master's port 27900 is Quake 2's too, so the two need addresses of
-their own on one host. The game hard-codes it.
+The master's port 27900 is Quake 2's too, and the game hard-codes it.
+The two masters can share the port (see
+[Sharing port 27900](#sharing-port-27900)).
 
 ## Heartbeats
 
@@ -59,7 +60,26 @@ exits; a Linux server stopped with Ctrl+C, as LinuxGSM stops it, sends
 nothing.
 
 BF1942 also sends the All-Seeing Eye's heartbeat, `\hb\14690\bf1942`, to
-port 27900 of `master.udpsoft.com`. exmaster ignores it.
+port 27900 of `master.udpsoft.com`. exmaster drops it. The All-Seeing
+Eye's client and masters closed in 2008, and nothing still reads such a
+list, so there is no master for it.
+
+## Sharing port 27900
+
+A `q2` and a `gs` listener on the same address and port run on one
+socket, `Exmaster.Q2GS`, which tells the packets apart by how they start:
+
+| Starts with | From | Goes to |
+|---|---|---|
+| `\hb\` | BF1942: the All-Seeing Eye's heartbeat | dropped |
+| `\` | GameSpy servers: heartbeats, replies to `\secure\` | `Exmaster.GS.Master` |
+| anything else | Quake 2: out-of-band packets (`FF FF FF FF`), `query` | `Exmaster.Q2.Master` |
+
+Quake 2 takes the first word of a packet as its command, so nothing it
+sends starts with `\`; everything GameSpy's first protocol sends does.
+The two keep their own stores, rate limits and state. Replies go out
+through the shared socket, so a server behind NAT gets them from the
+address it sent its heartbeat to.
 
 ## The challenge
 
