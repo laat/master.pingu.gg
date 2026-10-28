@@ -4,14 +4,15 @@ Master servers in Elixir/OTP for Quake 3 based games, Quake 2 and
 QuakeWorld. Game servers heartbeat it and clients ask it for server lists.
 It keeps the lists in memory (ETS) and nothing else: no database, no
 server browser, no upstream masters. It is separate from the Go program
-in the repository root, which is to stop being a public master.
+in the repository root, which is no master: it only lists the servers
+masters like this one list.
 [gameservers/](gameservers/README.md) runs real Quake 3, Quake 2 and
 QuakeWorld servers against it in Docker.
 
 The protocols are described in [../docs/quake3.md](../docs/quake3.md),
 [../docs/quake2.md](../docs/quake2.md) and
-[../docs/quakeworld.md](../docs/quakeworld.md). The Quake 3 rules are
-gomaster's.
+[../docs/quakeworld.md](../docs/quakeworld.md). The Quake 3 rules come
+from gomaster, which was a master too until it handed that over.
 
 ## Running
 
@@ -88,7 +89,7 @@ stateless challenge, an HMAC of the address, the listener's local
 address and port, a 5-second time bucket and the class the tag implies (`Exmaster.Q3.Challenge`). It stores
 nothing, so forged heartbeats can't fill memory. A server is listed for
 15 minutes after each valid reply, and is dropped then unless a heartbeat
-had it asked again. These rules are gomaster's:
+had it asked again. These rules come from gomaster:
 
 - game names from fingerprints, labels, `gamename` and the tag;
 - unknown tags can't claim a built-in game, and are capped;
@@ -132,7 +133,6 @@ server whose slot gets taken is asked again at its next heartbeat.
   shutdown and, a moment later, a heartbeat from its new instance; that
   heartbeat is put off, since the check spent the minute, and is answered
   as one from an unlisted address when the check drops the old entry.
-  gomaster ignores flatlines.
 
 ## What gomaster does that this doesn't
 
