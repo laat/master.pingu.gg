@@ -207,8 +207,8 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   got Call of Duty 2 and 4 and queried them. qstat `-sof2m` asks
   `getservers 2004 SOF2FULL`, an option exmaster doesn't know, so it
   asks for neither empty nor full servers and doesn't get an empty one.
-- Stopped by LinuxGSM, Call of Duty sent `heartbeat flatline` and SoF2
-  `heartbeat flatline SoF2MP-1`, twice; exmaster asked each, got no
+- Stopped by LinuxGSM, Call of Duty sent `heartbeat flatline`, and SoF2
+  `heartbeat flatline SoF2MP-1` twice; exmaster asked each, got no
   answer, and dropped it 10 seconds later.
 - A capture of their game ports off loopback, IPv6 included, stayed
   empty.
