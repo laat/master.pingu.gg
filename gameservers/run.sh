@@ -5,12 +5,12 @@
 #   run.sh [service...]     all of them by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942 mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4}
+services=${*:-q3 q2 qw bf1942 bfv mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
 # The image installs a game only into an empty serverfiles. q3, q2 and qw
-# mount a config there, and BF1942, UT99 and UT2004 read their configs
-# from there, so they are installed first, with nothing but /data
+# mount a config there, and BF1942, BF Vietnam, UT99 and UT2004 read their
+# configs from there, so they are installed first, with nothing but /data
 # mounted, unless their executable is there already.
 install_first() {
 	case " $services " in *" $1 "*)
@@ -25,13 +25,17 @@ install_first q3 q3ded
 install_first q2 quake2
 install_first qw mvdsv
 install_first bf1942 start.sh
+install_first bfv start.sh
 install_first ut99 System/ucc-bin
 install_first ut2k4 System/ucc-bin
 
 # BF1942's config goes in before it starts: LinuxGSM's listens on every
-# address.
+# address. BF Vietnam's too, which is LAN only and on BF1942's ports.
 case " $services " in *" bf1942 "*)
 	cp config/bf1942/serversettings.con data/bf1942/serverfiles/mods/bf1942/settings/
+esac
+case " $services " in *" bfv "*)
+	cp config/bfv/serversettings.con data/bfv/serverfiles/mods/bfvietnam/settings/
 esac
 
 # UT99's masters are in its ini, and LinuxGSM's names fourteen public ones.
@@ -76,10 +80,11 @@ done
 # Quake 2 3.20's first heartbeat comes minutes after it starts, and the
 # ping setmaster sends goes out before its socket is open. The others
 # heartbeat at once; this makes it immediate for all of them. BF1942
-# heartbeats as it starts too, and has no command for it. Neither has
-# UT2004, whose first heartbeat comes a minute after it starts.
+# heartbeats as it starts too, and has no command for it, nor has BF
+# Vietnam. Neither has UT2004, whose first heartbeat comes a minute after
+# it starts.
 for g in $services; do
-	case $g in bf1942 | ut2k4) continue ;; esac
+	case $g in bf1942 | bfv | ut2k4) continue ;; esac
 	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null || true
 done
 sleep 3

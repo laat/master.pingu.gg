@@ -4,7 +4,9 @@ This is GameSpy's first master protocol, from before Query and Reporting 2,
 as Battlefield 1942, Medal of Honor: Allied Assault and Unreal Tournament
 speak it, and how exmaster speaks it: `Exmaster.GS`
 (wire format), `Exmaster.GS.Master` (heartbeats, UDP) and
-`Exmaster.GS.ListServer` (lists, TCP). Quake 3 is in [quake3.md](quake3.md).
+`Exmaster.GS.ListServer` (lists, TCP). Quake 3 is in [quake3.md](quake3.md);
+GameSpy's second protocol, QR2, which Battlefield Vietnam speaks, in
+[qr2.md](qr2.md).
 The sources used here are:
 
 - The Battlefield 1942 Linux dedicated server, 1.61 patched to 1.612, as
@@ -69,20 +71,24 @@ list, so there is no master for it.
 
 ## Sharing port 27900
 
-A `q2` and a `gs` listener on the same address and port run on one
-socket, `Exmaster.Q2GS`, which tells the packets apart by how they start:
+Two or three `q2`, `gs` and `qr2` listeners on the same address and
+port run on one socket, `Exmaster.Shared`, which tells the packets apart
+by how they start:
 
 | Starts with | From | Goes to |
 |---|---|---|
 | `\hb\` | BF1942: the All-Seeing Eye's heartbeat | dropped |
 | `\` | GameSpy servers: heartbeats, replies to `\secure\` | `Exmaster.GS.Master` |
+| a byte from 1 to 9, and 4 more | QR2 servers: heartbeats, responses, available checks, keepalives ([qr2.md](qr2.md)) | `Exmaster.QR2.Master` |
 | anything else | Quake 2: out-of-band packets (`FF FF FF FF`), `query` | `Exmaster.Q2.Master` |
 
 Quake 2 takes the first word of a packet as its command, so nothing it
-sends starts with `\`; everything GameSpy's first protocol sends does.
-The two keep their own stores, rate limits and state. Replies go out
-through the shared socket, so a server behind NAT gets them from the
-address it sent its heartbeat to.
+sends starts with `\` or a byte under 10; everything GameSpy's first
+protocol sends starts with `\`, and everything a QR2 server sends with
+its packet type and its instance key. A packet for a master that isn't
+on the socket is dropped. The masters keep their own stores, rate limits
+and state. Replies go out through the shared socket, so a server behind
+NAT gets them from the address it sent its heartbeat to.
 
 ## The challenge
 

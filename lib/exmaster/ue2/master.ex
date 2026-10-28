@@ -32,7 +32,7 @@ defmodule Exmaster.UE2.Master do
   use GenServer
   require Logger
 
-  alias Exmaster.{Addr, RateLimit, Store, UE2}
+  alias Exmaster.{Addr, Paid, RateLimit, Store, UE2}
 
   @game "ut2004"
   @server "UT2K4SERVER"
@@ -50,20 +50,16 @@ defmodule Exmaster.UE2.Master do
   # long after connecting. A connection is closed this long after it
   # opened, whatever it is doing, unless it is a server's that has done
   # its handshake, so one that reads slowly can't keep a slot. Time a
-  # list spends waiting for the reply budget moves that, up to @max_wait
-  # in all.
+  # list spends waiting for the reply budget moves that, up to a minute in
+  # all (Exmaster.Paid).
   @timeout 10_000
   @lifetime 15_000
-  @max_wait 60_000
   # UT2004 heartbeats every 60 seconds.
   @idle 150_000
   # A server's heartbeats are stored at most this often; one in between
   # waits for the gap to end, and a later one replaces it.
   @gap 10_000
   @max_frame 32_768
-  # A list goes out in chunks of this size, each paid for from the reply
-  # budget before it is sent.
-  @chunk 65_536
 
   @hostname_bytes 127
   @name_bytes 63
@@ -426,7 +422,7 @@ defmodule Exmaster.UE2.Master do
   # masters reserve it; the rest is paid a chunk at a time, waiting for
   # the budget when it runs out, so a list larger than its burst still
   # goes out, at its rate. The time it waits moves the connection's end,
-  # which send_paid/5 keeps from here on in place of the kill timer.
+  # which Exmaster.Paid keeps from here on in place of the kill timer.
   defp list(sock, ip, query, store, {kill, ends}) do
     now = Exmaster.now()
 
@@ -443,64 +439,10 @@ defmodule Exmaster.UE2.Master do
       :timer.cancel(kill)
 
       with :ok <- send_frame(sock, <<length(entries)::little-32, 1>>),
-           do: send_paid(sock, chunks(entries), RateLimit.min_reply(), ends, 0)
+           do: Paid.send(sock, Paid.chunks(entries), RateLimit.min_reply(), ends)
     else
       {:budget, _} -> Logger.debug("ue2: a list over the reply budget")
       _ -> :ok
-    end
-  end
-
-  # Frames in chunks of at most @chunk bytes (or one frame), with their
-  # sizes.
-  defp chunks(frames) do
-    frames
-    |> Enum.chunk_while(
-      {[], 0},
-      fn frame, {acc, size} ->
-        n = IO.iodata_length(frame)
-
-        if acc != [] and size + n > @chunk,
-          do: {:cont, {Enum.reverse(acc), size}, {[frame], n}},
-          else: {:cont, {[frame | acc], size + n}}
-      end,
-      fn
-        {[], _} -> {:cont, {[], 0}}
-        {acc, size} -> {:cont, {Enum.reverse(acc), size}, {[], 0}}
-      end
-    )
-  end
-
-  # Sends each chunk once the budget has paid for it; credit is what the
-  # reservation has paid for already. The connection ends at ends, moved
-  # by the time waited for the budget: a client that reads slowly has its
-  # 15 seconds, and one that stops reading is closed by the 5-second send
-  # timeout.
-  @doc false
-  def send_paid(_sock, [], _credit, _ends, _waited), do: :ok
-
-  def send_paid(sock, [{chunk, size} | rest], credit, ends, waited) do
-    with {:ok, waited} <- pay(max(size - credit, 0), waited),
-         true <- Exmaster.now() < ends + waited,
-         :ok <- :gen_tcp.send(sock, chunk) do
-      send_paid(sock, rest, max(credit - size, 0), ends, waited)
-    else
-      _ -> :error
-    end
-  end
-
-  defp pay(0, waited), do: {:ok, waited}
-
-  defp pay(bytes, waited) do
-    case RateLimit.spend_reply(bytes, Exmaster.now()) do
-      :ok ->
-        {:ok, waited}
-
-      {:error, wait} when waited + wait <= @max_wait ->
-        Process.sleep(wait)
-        pay(bytes, waited + wait)
-
-      {:error, _} ->
-        :error
     end
   end
 
