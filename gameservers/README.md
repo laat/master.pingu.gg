@@ -97,9 +97,10 @@ own from `config/` instead:
   `sv_master1` names. iortcw and ET: Legacy open IPv6 sockets on `[::]`
   unless told otherwise (`net_enabled 1`, `net_ip6 ::1`), as do Xonotic
   (`net_address_ipv6 ::1`) and Warfork (`sv_ip6 ::1`). Xonotic also
-  heartbeats three masters of its own by IP address,
-  `sv_masterextra1`-`3`, which `extra_hosts` can't catch; its start line
-  clears them.
+  heartbeats masters of its own, `sv_masterextra1`-`3`
+  (`master1.xonotic.org:42863`, `master2.xonotic.org:27950`); its start
+  line points them at 127.0.0.3, since `+set` with an empty value sets
+  nothing here either.
 
 q3ded, quake2 and the five above are bound to loopback, so they can't
 send anywhere else. A capture of game-port UDP off loopback while the
@@ -110,9 +111,10 @@ sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 
 ```
 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
-MOH:AA with gamedig (qstat can) and restarts them after five failures,
-every three minutes or so, or starts a second instance, so
-`querymode="1"` has it check the process only.
+MOH:AA with gamedig (qstat can), and queries ET and ET: Legacy on 27960,
+the port it takes from their server configs. It restarts a server after
+five failures, every three minutes or so, or starts a second instance,
+so `querymode="1"` has it check the process only for those six.
 
 ## What it showed (2026-10-28)
 

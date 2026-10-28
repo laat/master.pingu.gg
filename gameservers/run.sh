@@ -19,6 +19,7 @@ install_first() {
 		mkdir -p "data/$1"
 		docker run --rm -e UID="$HOST_UID" -e GID="$HOST_GID" -v "$PWD/data/$1:/data" \
 			"ghcr.io/gameservermanagers/gameserver:$1" auto-install || true
+		[ -e "data/$1/serverfiles/$2" ] || { echo "$1 didn't install; see the output above" >&2; exit 1; }
 	esac
 }
 install_first q3 q3ded
