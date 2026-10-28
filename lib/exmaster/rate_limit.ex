@@ -68,6 +68,19 @@ defmodule Exmaster.RateLimit do
 
   defp wait(units, rate), do: div(units + rate - 1, rate)
 
+  @doc "What take/4 would answer, without spending anything."
+  def check(key, {rate, per, burst}, cost, now) do
+    t = now * rate
+
+    tat =
+      case :ets.lookup(@table, key) do
+        [] -> t + cost * per
+        [{_, old, _}] -> max(old, t) + cost * per
+      end
+
+    if tat - t > burst * per, do: {:error, wait(tat - t - burst * per, rate)}, else: :ok
+  end
+
   @doc """
   Empties the bucket key as of now, however full or spent it was: nothing
   passes until it has refilled from empty.

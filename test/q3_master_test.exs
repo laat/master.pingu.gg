@@ -185,6 +185,135 @@ defmodule Exmaster.Q3.MasterTest do
     assert list(ctx, state, "getservers", "84") == [@server]
   end
 
+  test "a server two masters list is asked by each, once a minute", %{ctx: plain, state: state} do
+    start_supervised!({Store, name: :exmaster_q3_test_UrbanTerror})
+
+    labelled = %{
+      plain
+      | label: "UrbanTerror",
+        store: :exmaster_q3_test_UrbanTerror,
+        id: {{0, 0, 0, 0}, 27_960},
+        port: 27_960
+    }
+
+    # Listed by both, each listener with its own state.
+    p = register(plain, state, @server, "QuakeArena-1", @info)
+    l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info, 2_000)
+
+    # A minute on, a heartbeat to each has it asked by each, 2 seconds
+    # apart: they share an address, and its flood protection counts by IP.
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} =
+             heartbeat(plain, p, @server, "QuakeArena-1", 62_000)
+
+    assert {[], l} = heartbeat(labelled, l, @server, "QuakeArena-1", 62_000)
+    assert {[], l} = Master.tick(labelled, 63_999, l)
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} = Master.tick(labelled, 64_000, l)
+  end
+
+  test "a check from one master waits for another's poll to be 2 seconds old", %{
+    ctx: plain,
+    state: state
+  } do
+    start_supervised!({Store, name: :exmaster_q3_test_et})
+    labelled = %{plain | label: "et", store: :exmaster_q3_test_et, id: {{0, 0, 0, 0}, 27_955}}
+    info = %{@info | "protocol" => "84"} |> Map.put("gamename", "et")
+    p = register(plain, state, @server, "EnemyTerritory-1", info)
+    l = register(labelled, Master.init(0), @server, "EnemyTerritory-1", info, 2_000)
+
+    {[_], _} = heartbeat(plain, p, @server, "EnemyTerritory-1", 62_000)
+    # A forged flatline to the other a moment later: its check goes out
+    # when the poll is 2 seconds old, and the server, which answers it,
+    # stays listed.
+    {[], l} = heartbeat(labelled, l, @server, "ETFlatline-1", 62_100)
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], l} = Master.tick(labelled, 64_000, l)
+    l = answer(labelled, l, @server, c, info, 64_200)
+    {[], _} = Master.tick(labelled, 75_000, l)
+    assert Store.lookup(:exmaster_q3_test_et, @server, 75_000)
+  end
+
+  test "a forged heartbeat doesn't keep a server's own from its first query", %{
+    ctx: ctx,
+    state: state
+  } do
+    # A junk tag can't claim a built-in game, so the server's answer to its
+    # query is rejected.
+    info = Map.put(@info, "gamename", "Quake3Arena")
+
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], state} =
+      heartbeat(ctx, state, @server, "foo", 0)
+
+    state = answer(ctx, state, @server, c, info, 50)
+    assert Store.lookup(:exmaster_q3, @server, 50) == nil
+    # The server's own heartbeat still gets a query of its own.
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], state} =
+      heartbeat(ctx, state, @server, "QuakeArena-1", 5_000)
+
+    answer(ctx, state, @server, c, info, 5_050)
+    assert Store.lookup(:exmaster_q3, @server, 5_050)
+  end
+
+  test "forged heartbeats to masters that won't list a server don't starve another's polls",
+       %{ctx: plain} do
+    start_supervised!({Store, name: :exmaster_q3_test_starve})
+
+    labelled = %{
+      plain
+      | label: "UrbanTerror",
+        store: :exmaster_q3_test_starve,
+        id: {{0, 0, 0, 0}, 27_960},
+        port: 27_960
+    }
+
+    # Five other masters that never list the server: the Quake 3 one, and
+    # four labelled ones whose queries it can't answer.
+    others =
+      [plain] ++
+        for n <- 1..4 do
+          start_supervised!({Store, name: :"exmaster_q3_test_other#{n}"})
+
+          %{
+            plain
+            | label: "Other#{n}",
+              store: :"exmaster_q3_test_other#{n}",
+              id: {{0, 0, 0, 0}, 27_970 + n}
+          }
+        end
+
+    l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info)
+
+    # Each second a forged heartbeat with a junk tag reaches one of them in
+    # turn. Every 120 seconds the server heartbeats the labelled master,
+    # and answers its queries.
+    second = fn k, {os, l, asked} ->
+      t = k * 1_000
+      os = for {o, st} <- Enum.zip(others, os), do: elem(Master.tick(o, t, st), 1)
+      n = rem(k, 5)
+      {_, forged} = heartbeat(Enum.at(others, n), Enum.at(os, n), @server, "junk-1", t + 300)
+      os = List.replace_at(os, n, forged)
+
+      {beat, l} =
+        if rem(k, 120) == 0,
+          do: heartbeat(labelled, l, @server, "QuakeArena-1", t + 400),
+          else: {[], l}
+
+      {due, l} = Master.tick(labelled, t + 500, l)
+
+      l =
+        Enum.reduce(beat ++ due, l, fn {"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}, l ->
+          answer(labelled, l, @server, c, @info, t + 600)
+        end)
+
+      {os, l, asked + length(beat ++ due)}
+    end
+
+    {_, _, asked} =
+      Enum.reduce(1..1_000, {Enum.map(others, fn _ -> Master.init(0) end), l, 0}, second)
+
+    # Asked on each of its 8 heartbeats, and still listed.
+    assert asked >= 8
+    assert Store.lookup(:exmaster_q3_test_starve, @server, 1_000_700)
+  end
+
   test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
     # No gamename: the tag alone names the game.
     state = register(ctx, state, @server, "smokinguns", @info)
