@@ -231,24 +231,29 @@ defmodule Exmaster.Q3.MasterTest do
     assert Store.lookup(:exmaster_q3_test_et, @server, 75_000)
   end
 
-  test "a first query waits for another master's poll to be 2 seconds old", %{
-    ctx: plain,
+  test "a forged heartbeat doesn't keep a server's own from its first query", %{
+    ctx: ctx,
     state: state
   } do
-    start_supervised!({Store, name: :exmaster_q3_test_UrT})
-    labelled = %{plain | label: "UrT", store: :exmaster_q3_test_UrT, id: {{0, 0, 0, 0}, 27_960}}
-    p = register(plain, state, @server, "QuakeArena-1", @info)
+    # A junk tag can't claim a built-in game, so the server's answer to its
+    # query is rejected.
+    info = Map.put(@info, "gamename", "Quake3Arena")
 
-    {[_], _} = heartbeat(plain, p, @server, "QuakeArena-1", 61_000)
-    # Not listed by the other yet: its first query waits too.
-    {[], l} = heartbeat(labelled, Master.init(0), @server, "QuakeArena-1", 61_010)
-    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], l} = Master.tick(labelled, 63_000, l)
-    answer(labelled, l, @server, c, @info, 63_100)
-    assert Store.lookup(:exmaster_q3_test_UrT, @server, 63_100)
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], state} =
+      heartbeat(ctx, state, @server, "foo", 0)
+
+    state = answer(ctx, state, @server, c, info, 50)
+    assert Store.lookup(:exmaster_q3, @server, 50) == nil
+    # The server's own heartbeat still gets a query of its own.
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], state} =
+      heartbeat(ctx, state, @server, "QuakeArena-1", 5_000)
+
+    answer(ctx, state, @server, c, info, 5_050)
+    assert Store.lookup(:exmaster_q3, @server, 5_050)
   end
 
-  test "forged heartbeats to a master that won't list a server don't starve another's polls",
-       %{ctx: plain, state: state} do
+  test "forged heartbeats to masters that won't list a server don't starve another's polls",
+       %{ctx: plain} do
     start_supervised!({Store, name: :exmaster_q3_test_starve})
 
     labelled = %{
@@ -259,44 +264,54 @@ defmodule Exmaster.Q3.MasterTest do
         port: 27_960
     }
 
+    # Five other masters that never list the server: the Quake 3 one, and
+    # four labelled ones whose queries it can't answer.
+    others =
+      [plain] ++
+        for n <- 1..4 do
+          start_supervised!({Store, name: :"exmaster_q3_test_other#{n}"})
+
+          %{
+            plain
+            | label: "Other#{n}",
+              store: :"exmaster_q3_test_other#{n}",
+              id: {{0, 0, 0, 0}, 27_970 + n}
+          }
+        end
+
     l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info)
 
-    # Each second a forged heartbeat with a junk tag reaches the plain
-    # master, which can't list the server under it. Every 120 seconds the
-    # server heartbeats the labelled master, and answers its queries.
-    {_, l} =
-      Enum.reduce(1..1_000, {state, l}, fn k, {p, l} ->
-        t = k * 1_000
-        {_, p} = Master.tick(plain, t, p)
-        {_, p} = heartbeat(plain, p, @server, "junk-1", t + 300)
+    # Each second a forged heartbeat with a junk tag reaches one of them in
+    # turn. Every 120 seconds the server heartbeats the labelled master,
+    # and answers its queries.
+    second = fn k, {os, l, asked} ->
+      t = k * 1_000
+      os = for {o, st} <- Enum.zip(others, os), do: elem(Master.tick(o, t, st), 1)
+      n = rem(k, 5)
+      {_, forged} = heartbeat(Enum.at(others, n), Enum.at(os, n), @server, "junk-1", t + 300)
+      os = List.replace_at(os, n, forged)
 
-        {beat, l} =
-          if rem(k, 120) == 0,
-            do: heartbeat(labelled, l, @server, "QuakeArena-1", t + 400),
-            else: {[], l}
+      {beat, l} =
+        if rem(k, 120) == 0,
+          do: heartbeat(labelled, l, @server, "QuakeArena-1", t + 400),
+          else: {[], l}
 
-        {due, l} = Master.tick(labelled, t + 500, l)
+      {due, l} = Master.tick(labelled, t + 500, l)
 
-        l =
-          Enum.reduce(beat ++ due, l, fn {"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}, l ->
-            answer(labelled, l, @server, c, @info, t + 600)
-          end)
+      l =
+        Enum.reduce(beat ++ due, l, fn {"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}, l ->
+          answer(labelled, l, @server, c, @info, t + 600)
+        end)
 
-        {p, l}
-      end)
+      {os, l, asked + length(beat ++ due)}
+    end
 
+    {_, _, asked} =
+      Enum.reduce(1..1_000, {Enum.map(others, fn _ -> Master.init(0) end), l, 0}, second)
+
+    # Asked on each of its 8 heartbeats, and still listed.
+    assert asked >= 8
     assert Store.lookup(:exmaster_q3_test_starve, @server, 1_000_700)
-  end
-
-  test "a first query put off is dropped if the server is listed meanwhile", %{
-    ctx: ctx,
-    state: state
-  } do
-    state = register(ctx, state, @server, "QuakeArena-1", @info)
-    # As if a heartbeat's first query had been put off for the spacing.
-    state = %{state | probes: %{@server => {2_000, {:known, "Quake3Arena"}}}}
-    assert {[], %{probes: probes}} = Master.tick(ctx, 2_000, state)
-    assert probes == %{}
   end
 
   test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
@@ -321,16 +336,14 @@ defmodule Exmaster.Q3.MasterTest do
   end
 
   test "rejects bad infoResponses", %{ctx: ctx, state: state} do
-    # Each 10 seconds after the last, as first queries to one address go.
-    for {{key, value}, i} <-
-          Enum.with_index([{"protocol", "x"}, {"sv_maxclients", "0"}, {"gametype", "a b"}]) do
-      register(ctx, state, @server, "QuakeArena-1", Map.put(@info, key, value), i * 10_000)
+    for {key, value} <- [{"protocol", "x"}, {"sv_maxclients", "0"}, {"gametype", "a b"}] do
+      register(ctx, state, @server, "QuakeArena-1", Map.put(@info, key, value))
     end
 
-    assert Store.all(:exmaster_q3, 30_000) == []
+    assert Store.all(:exmaster_q3, 0) == []
     # Call of Duty leaves clients out when nobody's on.
-    register(ctx, state, @server, "QuakeArena-1", Map.delete(@info, "clients"), 30_000)
-    assert Store.lookup(:exmaster_q3, @server, 30_000).clients == 0
+    register(ctx, state, @server, "QuakeArena-1", Map.delete(@info, "clients"))
+    assert Store.lookup(:exmaster_q3, @server, 0).clients == 0
   end
 
   test "servers expire unless they answer again", %{ctx: ctx, state: state} do
@@ -526,10 +539,7 @@ defmodule Exmaster.Q3.MasterTest do
     # RTCW servers rotate protocols; two listeners answering for one
     # server at the same moment both read its entry before either writes.
     start_supervised!({Store, name: :q3_race}, id: :q3_race)
-    # A store sends a server a first query every 10 seconds at most; the
-    # challenges here live a minute, so both are still good when the
-    # replies race.
-    ctx = %{ctx | store: :q3_race, challenge_ttl: 60_000}
+    ctx = %{ctx | store: :q3_race}
     other = %{ctx | id: {{0, 0, 0, 0}, 27901}, port: 27901}
     info = %{@info | "protocol" => "57"} |> Map.put("gamename", "wolfmp")
     servers = for p <- 1..300, do: {{10, 1, div(p, 256), rem(p, 256)}, 27960}
@@ -538,24 +548,22 @@ defmodule Exmaster.Q3.MasterTest do
       for {c, protocol} <- [{ctx, "57"}, {other, "60"}] do
         challenges =
           for addr <- servers do
-            now = if c == ctx, do: 0, else: 10_000
-
             {[{"\xFF\xFF\xFF\xFFgetinfo " <> ch, _}], _} =
-              heartbeat(c, Master.init(0), addr, "Wolfenstein-1", now)
+              heartbeat(c, Master.init(0), addr, "Wolfenstein-1", 0)
 
             {addr, ch}
           end
 
         fn ->
           for {addr, ch} <- challenges,
-              do: answer(c, Master.init(0), addr, ch, %{info | "protocol" => protocol}, 10_000)
+              do: answer(c, Master.init(0), addr, ch, %{info | "protocol" => protocol}, 0)
         end
       end
 
     tasks |> Enum.map(&Task.async/1) |> Enum.each(&Task.await/1)
 
     for addr <- servers do
-      assert %{protocols: %{57 => _, 60 => _}} = Store.lookup(:q3_race, addr, 10_000)
+      assert %{protocols: %{57 => _, 60 => _}} = Store.lookup(:q3_race, addr, 0)
     end
   end
 

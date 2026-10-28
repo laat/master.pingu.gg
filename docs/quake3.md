@@ -282,8 +282,7 @@ answered from that store, whatever game it names. A server that
 heartbeats the Quake 3 port and a labelled one is listed by each, and
 each asks it again on its own heartbeats, at most once a minute. Their
 queries to it go 2 seconds apart, since they usually come from one
-address and DarkPlaces drops a second query from an IP within a second,
-and a master asks a server it doesn't list at most every 10 seconds.
+address and DarkPlaces drops a second query from an IP within a second.
 
 That is how games that look like Quake 3 on the wire are kept apart.
 Urban Terror and Smokin' Guns are standalone games with masters of their
