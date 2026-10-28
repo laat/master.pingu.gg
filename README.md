@@ -38,9 +38,12 @@ OS and architecture it runs on.
 | `EXMASTER_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
 
 A protocol can listen on several ports. A Quake 3 listener can have a
-label, `q3:27900=UrbanTerror`, to mirror a game's own master: servers that
-heartbeat it are listed under the label, and anonymous queries to it ask
-for that game (see [Listeners](docs/quake3.md#listeners)). Quake 3 listens
+label, `q3:27960=UrbanTerror`, to be a game's own master: its servers are
+listed in a store of their own, apart from Quake 3's, and every query to
+it is answered from that store. Urban Terror and Smokin' Guns need this,
+since on the wire they look like Quake 3 (see
+[Listeners](docs/quake3.md#listeners)). `Exmaster.stats()` and
+`Exmaster.servers/1` take the label as the master's name. Quake 3 listens
 on `::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6.
 Quake 2 and QuakeWorld lists hold only IPv4 addresses, so they listen on
 IPv4.
@@ -83,7 +86,8 @@ back. When they do, each sends its list to the other.
 Exmaster.Supervisor
 ├── Exmaster.RateLimit        token buckets in a public ETS table
 ├── Exmaster.PG               the pg scope the stores share their lists in
-├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw
+├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw,
+│                             and :exmaster_q3_<label> per label
 ├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
     └── Exmaster.Listener     one per socket, running Q3.Master, Q2.Master or QW.Master
@@ -132,10 +136,10 @@ nothing, so forged heartbeats can't fill memory. A server is listed for
 15 minutes after each valid reply, and is dropped then unless a heartbeat
 had it asked again. Other rules:
 
-- game names from fingerprints, labels, `gamename` and the tag;
+- game names from labels, `gamename` and the tag;
 - unknown tags can't claim a built-in game, and are capped;
 - every protocol a server reported in the last 15 minutes is kept;
-- ET clients always get empty and full servers, and ET: Legacy's;
+- ET clients always get empty and full servers;
 - `getservers` and `getserversExt` options, packets of at most 1400 bytes,
   EOT on the last.
 

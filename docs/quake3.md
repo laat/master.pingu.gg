@@ -58,6 +58,7 @@ The argument is a *heartbeat tag* identifying the protocol family, not the game:
 | `Wolfenstein-1`    | `wolfmp`      | `WolfFlatline-1` |
 | `EnemyTerritory-1` | `et`          | `ETFlatline-1`   |
 | `Tremulous`        | `Tremulous`   | `Tremulousdead`  |
+| `smokinguns`       | `smokinguns`  | `smokingunsdead` |
 | `DarkPlaces`       | from `infoResponse` `gamename` | none |
 | anything else      | from `infoResponse` `gamename` | none |
 
@@ -117,10 +118,13 @@ Two forms, told apart by whether the first token is an integer:
 
 - Anonymous: `getservers <protocol> [options]`. The game is looked up from the
   protocol number (66–68 → Quake3Arena, 50/57/59/60 → wolfmp, 72/80/83/84 → et).
-  On a labelled listener it is the label's game (see [Listeners](#listeners)).
   For any other protocol, every server that reported it matches, whatever
   its game.
 - Named: `getservers <gamename> <protocol> [options]`.
+
+A labelled listener (see [Listeners](#listeners)) ignores the game name:
+every server it lists is its game's, and Smokin' Guns' clients ask for
+`smokinguns` over IPv6 and anonymously over IPv4.
 
 Options, whitespace-separated, unknown ones ignored:
 
@@ -237,8 +241,8 @@ classified without the master having stored anything:
 - **known**: a tag from the table above, which implies a game;
 - **DarkPlaces**: the server must send `gamename`;
 - **unknown**: any other tag. The server must send `gamename`, can't be
-  listed as a built-in game (`Quake3Arena`, `wolfmp`, `et`, `Tremulous`)
-  unless a listener's label says so, and there are at most
+  listed as a built-in game (`Quake3Arena`, `wolfmp`, `et`, `Tremulous`,
+  `smokinguns`) unless a listener's label says so, and there are at most
   `EXMASTER_MAX_UNKNOWN_TAG` (512) such servers. A made-up tag can't
   crowd out or impersonate the games that have tags of their own.
 
@@ -246,12 +250,9 @@ classified without the master having stored anything:
 
 Every `infoResponse` decides the game again, first match wins:
 
-1. A fingerprint (see [Telling games apart](#telling-games-apart)), unless
-   the server sends a `gamename` that isn't a built-in game. Forks send
-   their parent's name or none.
-2. The listener's label.
-3. The `gamename` key.
-4. The game the heartbeat tag implies.
+1. The listener's label.
+2. The `gamename` key.
+3. The game the heartbeat tag implies.
 
 If nothing applies, the server is rejected. Game names must be 1–63
 printable ASCII characters without whitespace or `\`.
@@ -273,45 +274,59 @@ protocol to get onto every list: the six advertising the demo protocol
 ### Listeners
 
 A master can listen on several ports, and a Quake 3 listener can have a
-label: `EXMASTER_LISTEN=q3:27950,q3:27900=UrbanTerror`. A labelled
-listener stands in for a game's own master. Servers that heartbeat it are
-listed under the label (after fingerprints, see [Game names](#game-names)),
-and anonymous queries to it ask for the label's game. That is for games
-whose servers and clients don't say which game they are: Urban Terror's
-master is on 27900, and OpenArena's servers send `Quake3Arena` or no
-`gamename` at all. A server keeps the label of the listener it was first
-listed through until it expires.
+label: `EXMASTER_LISTEN=q3:27950,q3:27960=UrbanTerror,q3:27961=SmokinGuns`.
+A labelled listener is a game's own master. Its servers are listed in a
+store of their own, under the label, shared by the listeners with the
+same label and kept apart from the Quake 3 list, and every query to it is
+answered from that store, whatever game it names.
+
+That is how games that look like Quake 3 on the wire are kept apart.
+Urban Terror and Smokin' Guns are standalone games with masters of their
+own, `master.urbanterror.info:27900` and `master.smokin-guns.org:27950`.
+Urban Terror's servers heartbeat `QuakeArena-1` with no `gamename`, and
+its clients ask `getservers 68`, as Quake 3's do; only the master they
+talk to tells them apart. Smokin' Guns' servers heartbeat `smokinguns`,
+but its clients ask `getservers 68` over IPv4 too. A server that
+heartbeats the Quake 3 port is listed as what its tag and `gamename` say,
+so an Urban Terror server there is listed as Quake 3, as dpmaster would.
+
+To take a game's servers on its own default port, give its listener an
+address of its own (`q3:203.0.113.2:27900=UrbanTerror`), and bind the
+other listeners on that port to their addresses: a listener on all
+addresses takes the port on all of them.
 
 ## Telling games apart
 
 Many id Tech 3 games heartbeat `QuakeArena-1`, send no `gamename` (or
-`Quake3Arena`) and share protocol numbers. This is what separates them,
+`Quake3Arena`) and share protocol numbers. This is what tells them apart,
 from the replies of about 2,200 servers listed by their own masters on
-2026-10-25 and from engine source. Rules in **bold** are exmaster's
-fingerprints (`Exmaster.Q3.Games`); the rest only show up in
-`statusResponse`, which a master doesn't ask for, or aren't reliable
-enough.
+2026-10-25 and from engine source. exmaster goes by none of it: a game
+that can't be told by its tag or `gamename` gets a labelled listener (see
+[Listeners](#listeners)). Much of it only shows up in `statusResponse`,
+which a master doesn't ask for.
 
 | Game | Protocol | `gamename` sent | Distinguishing fields |
 |---|---|---|---|
 | Quake 3 (id 1.32, CNQ3) | 68 (1.31: 67) | no | status `version` `Q3 1.32…`, `CNQ3 …` |
 | Quake 3 (ioquake3) | 68 | `Quake3Arena` | info `g_humanplayers`; status `version` `ioq3 …`, `com_gamename` |
-| Urban Terror 4.2/4.3 | 68 | no, or `Quake3Arena` | **info `game` = `q3ut4`**; info `modversion`, `auth`; status `gamename` `q3urt43` |
-| Smokin' Guns | 68 | rarely, `smokinguns` | **info `game` = `smokinguns`** |
+| Urban Terror 4.2/4.3 | 68 | no, or `Quake3Arena` | info `game` = `q3ut4`, `modversion`, `auth`; status `gamename` `q3urt43` |
+| Smokin' Guns | 68 | rarely, `smokinguns` | tag `smokinguns`; info `game` = `smokinguns` |
 | OpenArena | 71 | no, or `Quake3Arena` | status `gamename` `baseoa`, `version` `ioq3+oa …`; nothing in info |
 | Q3Rally | 71 | `Q3Rally` | |
 | World of Padman | 71 | `WorldofPadman` | |
 | Tremulous | 69–71 | trunk: no; GPP/1.3: `Tremulous` | tag `Tremulous` |
-| Jedi Outcast (+JK2MV) | **15, 16** | no | info `truejedi`, `wdisable`, `fdisable`; status `JK2MV` |
-| Jedi Academy (+OpenJK) | **25, 26** | no | as JK2; info `autodemo` on OpenJK |
-| Soldier of Fortune II | **2002, 2004** | no | status `com_gamename` `SoF2MP` |
+| Jedi Outcast (+JK2MV) | 15, 16 | no | info `truejedi`, `wdisable`, `fdisable`; status `JK2MV` |
+| Jedi Academy (+OpenJK) | 25, 26 | no | as JK2; info `autodemo` on OpenJK |
+| Soldier of Fortune II | 2002, 2004 | no | status `com_gamename` `SoF2MP` |
 | RTCW (+iortcw) | 60 (1.0: 57) | `wolfmp` | tag `Wolfenstein-1` |
-| ET 2.60b, ET: Legacy, ETe | 84 (`ET 3.00 - TB` servers: 82) | `et` | tag `EnemyTerritory-1`; **ET: Legacy adds info `version` `ET Legacy v…`** |
+| ET 2.60b, ET: Legacy, ETe | 84 (`ET 3.00 - TB` servers: 82) | `et` | tag `EnemyTerritory-1`; ET: Legacy adds info `version` `ET Legacy v…` |
 | Warsow, Warfork | 22 (Warfork also 24, 26) | yes | |
 | Nexuiz, Xonotic | 3 | yes | tag `DarkPlaces` |
 
-The fingerprinted games are listed as `UrbanTerror`, `SmokinGuns`, `JK2`,
-`JKA`, `SoF2` and `ETLegacy`.
+Jedi Outcast, Jedi Academy and Soldier of Fortune II need nothing: their
+protocols are their own, and an anonymous query for a protocol exmaster
+has no game for matches every server that reported it. They are listed
+as `Quake3Arena`, which their tag implies.
 
 OpenArena is the one that can't be told from Quake 3 by `infoResponse`:
 at protocol 71 both send `Quake3Arena` or nothing, and 14 of the 76
@@ -319,10 +334,9 @@ servers OpenArena's master listed were in fact Quake 3 (`baseq3`,
 `defrag`) on an ioquake3 build with protocol 71. A labelled listener is
 the way to list them apart.
 
-ET: Legacy is listed apart from vanilla Wolfenstein: ET, by its `version`
-in `infoResponse` (285 of 399 ET servers on 2026-10-25, with 453 of the
-568 players). ET 2.60b clients join ET: Legacy servers, so a query for
-`et` lists both.
+ET: Legacy servers (285 of 399 ET servers on 2026-10-25, with 453 of the
+568 players) are listed as `et`, with vanilla Wolfenstein: ET's, whose
+clients join them.
 
 ## Quake on Quake 3 masters
 

@@ -99,32 +99,29 @@ defmodule Exmaster.Q3.MasterTest do
     assert list(ctx, state, "getservers", "68 empty full") == [@server, full]
   end
 
-  test "ET clients always get empty and full servers, and ET: Legacy's", %{ctx: ctx, state: state} do
+  test "ET clients always get empty and full servers", %{ctx: ctx, state: state} do
     info = %{@info | "protocol" => "84", "clients" => "0"} |> Map.put("gamename", "et")
     state = register(ctx, state, @server, "EnemyTerritory-1", info)
-    legacy = {{203, 0, 113, 9}, 27960}
-
-    state =
-      register(
-        ctx,
-        state,
-        legacy,
-        "EnemyTerritory-1",
-        Map.put(info, "version", "ET Legacy v2.83")
-      )
-
-    assert Store.lookup(:exmaster_q3, legacy, 0).game == "ETLegacy"
-    assert list(ctx, state, "getservers", "84") == [@server, legacy]
-    assert list(ctx, state, "getservers", "ETLegacy 84 empty") == [legacy]
+    assert list(ctx, state, "getservers", "84") == [@server]
   end
 
   test "game names", %{ctx: ctx, state: state} do
-    # Fingerprint: Urban Terror sends Quake3Arena or nothing.
+    # Urban Terror heartbeats as Quake 3 and says nothing more, so on this
+    # port it is Quake 3; its own is a labelled listener.
     urt = {{203, 0, 113, 10}, 27960}
     state = register(ctx, state, urt, "QuakeArena-1", Map.put(@info, "game", "q3ut4"))
-    assert Store.lookup(:exmaster_q3, urt, 0).game == "UrbanTerror"
-    assert list(ctx, state, "getservers", "68") == []
-    assert list(ctx, state, "getservers", "UrbanTerror 68") == [urt]
+    assert Store.lookup(:exmaster_q3, urt, 0).game == "Quake3Arena"
+
+    # Smokin' Guns has a tag of its own.
+    sg = {{203, 0, 113, 15}, 27960}
+    state = register(ctx, state, sg, "smokinguns", Map.put(@info, "game", "smokinguns"))
+    assert %{game: "smokinguns", unknown: false} = Store.lookup(:exmaster_q3, sg, 0)
+    # As the ones that name it; and its IPv6 clients find them here too.
+    sg2 = {{203, 0, 113, 16}, 27960}
+    info = @info |> Map.put("game", "smokinguns") |> Map.put("gamename", "smokinguns")
+    state = register(ctx, state, sg2, "smokinguns", info)
+    assert list(ctx, state, "getserversExt", "smokinguns 68") == [sg, sg2]
+    assert list(ctx, state, "getservers", "68") == [urt]
 
     # DarkPlaces names its game.
     xon = {{203, 0, 113, 11}, 26000}
@@ -154,21 +151,48 @@ defmodule Exmaster.Q3.MasterTest do
     assert %{game: "Junk", unknown: true} = Store.lookup(:exmaster_q3, other, 0)
   end
 
-  test "a labelled listener lists its servers under the label", %{ctx: ctx, state: state} do
-    ctx = %{ctx | label: "OpenArena", id: {{0, 0, 0, 0}, 27901}, port: 27901}
+  test "a labelled listener is a master of its own", %{ctx: plain, state: state} do
+    start_supervised!({Store, name: :exmaster_q3_test_SmokinGuns})
 
-    state =
-      register(
-        ctx,
-        state,
-        @server,
-        "QuakeArena-1",
-        %{@info | "protocol" => "71"} |> Map.put("gamename", "Quake3Arena")
-      )
+    ctx = %{
+      plain
+      | label: "SmokinGuns",
+        store: :exmaster_q3_test_SmokinGuns,
+        id: {{0, 0, 0, 0}, 27961},
+        port: 27961
+    }
 
-    assert Store.lookup(:exmaster_q3, @server, 0).game == "OpenArena"
-    assert list(ctx, state, "getservers", "71") == [@server]
-    assert list(%{ctx | label: nil}, state, "getservers", "Quake3Arena 71") == []
+    state = register(ctx, state, @server, "smokinguns", @info)
+    q3 = {{203, 0, 113, 9}, 27960}
+    state = register(plain, state, q3, "QuakeArena-1", @info)
+
+    assert Store.lookup(ctx.store, @server, 0).game == "SmokinGuns"
+    assert Store.lookup(:exmaster_q3, @server, 0) == nil
+    # Its clients ask anonymously over IPv4 and as smokinguns over IPv6; any
+    # name gets the label's servers, and only those.
+    assert list(ctx, state, "getservers", "68") == [@server]
+    assert list(ctx, state, "getserversExt", "smokinguns 68") == [@server]
+    assert list(ctx, state, "getservers", "Quake3Arena 68") == [@server]
+    assert list(plain, state, "getservers", "68") == [q3]
+  end
+
+  test "a listener labelled with a built-in game keeps its rules", %{ctx: plain, state: state} do
+    start_supervised!({Store, name: :exmaster_q3_test_et})
+    ctx = %{plain | label: "et", store: :exmaster_q3_test_et, id: {{0, 0, 0, 0}, 27955}}
+    info = %{@info | "protocol" => "84", "clients" => "0"}
+    state = register(ctx, state, @server, "EnemyTerritory-1", info)
+    # ET clients never ask for empty servers, and get them.
+    assert list(ctx, state, "getservers", "84") == [@server]
+  end
+
+  test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
+    # No gamename: the tag alone names the game.
+    state = register(ctx, state, @server, "smokinguns", @info)
+    assert Store.lookup(:exmaster_q3, @server, 0)
+
+    {[_], state} = heartbeat(ctx, state, @server, "smokingunsdead", 60_000)
+    {[], _} = Master.tick(ctx, 70_000, state)
+    assert Store.lookup(:exmaster_q3, @server, 70_000) == nil
   end
 
   test "servers are listed for every protocol they reported", %{ctx: ctx, state: state} do

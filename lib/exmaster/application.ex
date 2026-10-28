@@ -5,7 +5,8 @@ defmodule Exmaster.Application do
       Exmaster.Supervisor
       ├── Exmaster.RateLimit        token buckets, in ETS
       ├── Exmaster.PG               the pg scope the stores share their lists in
-      ├── Exmaster.Store            :exmaster_q3, :exmaster_q2, :exmaster_qw
+      ├── Exmaster.Store            :exmaster_q3, :exmaster_q2, :exmaster_qw, and one
+      │                             per label, :exmaster_q3_<label>
       ├── Exmaster.Cluster          connects to the other nodes, if there are any
       └── Exmaster.Listeners        an Exmaster.Listener per socket
 
@@ -32,14 +33,19 @@ defmodule Exmaster.Application do
          ]}
     }
 
+    # One per master: Quake 3, Quake 2, QuakeWorld, and each label's.
+    stores =
+      for {name, store} <- Exmaster.Config.stores(listeners),
+          do: {Exmaster.Store, name: store, label: to_string(name)}
+
     children =
       [
         Exmaster.RateLimit,
-        %{id: Exmaster.PG, start: {:pg, :start_link, [Exmaster.Store.scope()]}},
-        {Exmaster.Store, name: :exmaster_q3},
-        {Exmaster.Store, name: :exmaster_q2},
-        {Exmaster.Store, name: :exmaster_qw}
-      ] ++ if(peers == [], do: [], else: [{Exmaster.Cluster, peers}]) ++ [listeners_sup]
+        %{id: Exmaster.PG, start: {:pg, :start_link, [Exmaster.Store.scope()]}}
+      ] ++
+        stores ++
+        if(peers == [], do: [], else: [{Exmaster.Cluster, peers}]) ++
+        [listeners_sup]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Exmaster.Supervisor)
   end

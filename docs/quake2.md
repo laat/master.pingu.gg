@@ -2,7 +2,7 @@
 
 The Quake 2 master is `Exmaster.Q2.Master`, with the wire format in
 `Exmaster.Q2`. It shares nothing of the Quake 3 rules
-([quake3.md](quake3.md)): no challenges, tags, fingerprints or labels.
+([quake3.md](quake3.md)): no challenges, tags or labels.
 QuakeWorld's is much the same, see [quakeworld.md](quakeworld.md).
 Sources: id's Quake 2 `server/sv_main.c`, `qcommon/qcommon.h`, and two
 master implementations, packetflinger/q2master (Go) and
