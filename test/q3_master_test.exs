@@ -314,6 +314,31 @@ defmodule Exmaster.Q3.MasterTest do
     assert Store.lookup(:exmaster_q3_test_starve, @server, 1_000_700)
   end
 
+  test "Soldier of Fortune II, on a labelled listener, and its flatline", %{
+    ctx: plain,
+    state: state
+  } do
+    start_supervised!({Store, name: :exmaster_q3_test_SoF2})
+    ctx = %{plain | label: "SoF2", store: :exmaster_q3_test_SoF2, id: {{0, 0, 0, 0}, 20_110}}
+    # sof2ded 1.03: its own tag, protocol 2004, no gamename.
+    info = %{@info | "protocol" => "2004"}
+
+    # The Quake 3 master can't name its game.
+    register(plain, state, @server, "SoF2MP-1", info)
+    assert Store.lookup(:exmaster_q3, @server, 0) == nil
+
+    state = register(ctx, Master.init(0), @server, "SoF2MP-1", info, 10_000)
+    assert %{game: "SoF2", unknown: true} = Store.lookup(ctx.store, @server, 10_000)
+    assert list(ctx, state, "getservers", "2004 empty", 10_000) == [@server]
+
+    # Its shutdown: a flatline with its tag after it.
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], state} =
+      heartbeat(ctx, state, @server, "flatline SoF2MP-1", 71_000)
+
+    {[], _} = Master.tick(ctx, 81_000, state)
+    assert Store.lookup(ctx.store, @server, 81_000) == nil
+  end
+
   test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
     # No gamename: the tag alone names the game.
     state = register(ctx, state, @server, "smokinguns", @info)

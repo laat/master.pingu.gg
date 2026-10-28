@@ -64,7 +64,11 @@ defmodule Exmaster.Q3.Games do
   @doc "The generic tag of games that send their name in infoResponse."
   def darkplaces, do: @darkplaces
 
-  @doc "Whether a heartbeat tag announces a shutdown. Call of Duty sends `flatline`."
+  @doc """
+  Whether a heartbeat tag announces a shutdown. Call of Duty sends
+  `flatline`, Soldier of Fortune II `flatline SoF2MP-1`.
+  """
   def flatline?("flatline"), do: true
+  def flatline?("flatline " <> _), do: true
   def flatline?(tag), do: Enum.any?(@games, &(&1.flatline == tag))
 end

@@ -62,8 +62,10 @@ The argument is a *heartbeat tag* identifying the protocol family, not the game:
 | `DarkPlaces`       | from `infoResponse` `gamename` | none |
 | anything else      | from `infoResponse` `gamename` | none |
 
-Call of Duty sends `flatline`. Tags are 1–63 printable ASCII characters
-without whitespace or `\`; other heartbeats are dropped.
+Call of Duty sends `flatline`, Soldier of Fortune II `flatline SoF2MP-1`;
+exmaster takes any tag that starts with `flatline ` as one. Other tags
+are 1–63 printable ASCII characters without whitespace or `\`; other
+heartbeats are dropped.
 
 Servers send a heartbeat when they start, when they become empty/full or stop
 being empty/full, and periodically (ioquake3: every 5 minutes). A *flatline*
@@ -332,11 +334,11 @@ own, and an anonymous query for a protocol exmaster has no game for
 matches every server that reported it. They are listed as `Quake3Arena`,
 which their tag implies.
 
-Soldier of Fortune II isn't listed. Raven's `sof2ded` 1.03 heartbeats
-`SoF2MP-1`, which isn't a built-in tag, sends no `gamename`, and always
-heartbeats port 20110, whatever port `sv_master1` names, so exmaster
-rejects it for having no game name. A listener labelled for it on 20110
-would list it.
+Soldier of Fortune II needs a labelled listener on 20110
+(`q3:20110=SoF2`). Raven's `sof2ded` 1.03 heartbeats `SoF2MP-1`, which
+isn't a built-in tag, sends no `gamename`, and always heartbeats port
+20110, whatever port `sv_master1` names, so the Quake 3 master rejects
+it for having no game name. Its protocol is 2004.
 
 OpenArena is the one that can't be told from Quake 3 by `infoResponse`:
 at protocol 71 both send `Quake3Arena` or nothing, and 14 of the 76
@@ -365,3 +367,21 @@ protocol with two differences a master has to allow for: servers send
 exmaster counts as 0 (dpmaster would reject them). The gametype is a word
 (`tdm`, `sd`, `war`). Without `gamename`, a labelled listener names the
 game.
+
+Each game's servers heartbeat Activision's master for it, by a name
+compiled into the server, on a port of its own, and exmaster needs a
+labelled listener on each:
+
+| Game | Master | Tag | Protocol | Listener |
+|---|---|---|---|---|
+| Call of Duty 1.5 | `codmaster.activision.com:20510` | `COD-1` | 6 | `q3:20510=CoD` |
+| United Offensive 1.51 | `coduomaster.activision.com:20610` | `COD-1` | 22 | `q3:20610=CoDUO` |
+| Call of Duty 2 1.3 | `cod2master.activision.com:20710` | `COD-2` | 118 | `q3:20710=CoD2` |
+| Call of Duty 4 (CoD4X 1.8) | `cod4master.activision.com:20810` | `COD-4` | 6 | `q3:20810=CoD4` |
+
+`sv_master1` doesn't change where they heartbeat. Their clients ask
+anonymously (`getservers 6`), and Call of Duty and Call of Duty 4 share
+protocol 6, so a store for each keeps them apart. United Offensive's
+first start also heartbeats `codmaster` once; its protocol keeps it out
+of Call of Duty's lists. The servers send a `statusResponse` with each
+heartbeat, which exmaster ignores.

@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs ten game servers from LinuxGSM's images
+`docker-compose.yml` runs fifteen game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -16,13 +16,19 @@ which install the original server binaries and game data:
 | `etl` | ET: Legacy's etlded | 27963 | 127.0.0.1:27950 |
 | `xnt` | Xonotic's dedicated server (DarkPlaces) | 26000 | 127.0.0.1:27950 |
 | `wf` | Warfork's wf_server, from Steam | 44400, HTTP 44444 | 127.0.0.1:27950 |
+| `cod` | Activision's cod_lnxded 1.5 | 28960 | 127.0.0.1:20510, labelled `CoD` |
+| `coduo` | Activision's coduo_lnxded 1.51 | 28961 | 127.0.0.1:20610, labelled `CoDUO` |
+| `cod2` | Activision's cod2_lnxded 1.3 | 28962 | 127.0.0.1:20710, labelled `CoD2` |
+| `cod4` | CoD4X 1.8's cod4x18_dedrun | 28964 | 127.0.0.1:20810, labelled `CoD4` |
+| `sof2` | Raven's sof2ded 1.03 | 20100 | 127.0.0.1:20110, labelled `SoF2` |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy master is on 127.0.0.2, since Quake 2's has 127.0.0.1:27900 and
 Battlefield 1942 and MOH:AA can't heartbeat another port.
 
 ```
-EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.2:27900,gsl:127.0.0.2:28900 \
+EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.2:27900,gsl:127.0.0.2:28900,\
+q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2 \
   elixir --sname exmaster -S mix run --no-halt
 
 gameservers/run.sh                  # start the servers, show the lists
@@ -30,6 +36,7 @@ gameservers/run.sh bf1942           # or some of them
 python3 -I gameservers/query.py     # the lists, as clients ask for them
 quakestat -q3m 127.0.0.1:27950      # qstat (apt install qstat) asks each server too
 quakestat -rwm 127.0.0.1:27950
+quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
 quakestat -gsm,bfield1942 127.0.0.2:28900
 quakestat -gsm,mohaa 127.0.0.2:28900
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
@@ -101,13 +108,23 @@ own from `config/` instead:
   (`master1.xonotic.org:42863`, `master2.xonotic.org:27950`); its start
   line points them at 127.0.0.3, since `+set` with an empty value sets
   nothing here either.
+- The four Call of Duty servers ignore `sv_master1` and heartbeat
+  Activision's masters by name (`codmaster`, `coduomaster`, `cod2master`
+  and `cod4master.activision.com`), each on a port of its own, so
+  `extra_hosts` points those at 127.0.0.1, where exmaster has a labelled
+  listener for each. The binaries also name Activision's CD-key servers
+  and CoD4X's update server, which go to 127.0.0.3. CoD4X opens an IPv6
+  socket too, on `[::]` unless `net_ip6 ::1` keeps it on loopback. SoF2
+  takes `sv_master1` but sends to its port 20110, whatever port it
+  names; like the five above, none of them runs LinuxGSM's server
+  config.
 
-q3ded, quake2 and the five above are bound to loopback, so they can't
+q3ded, quake2 and the others above are bound to loopback, so they can't
 send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400) and not host 127.0.0.1 and not host ::1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100) and not host 127.0.0.1 and not host ::1'
 ```
 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
@@ -178,4 +195,21 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
 - LinuxGSM's monitor, which can't query Battlefield 1942, started a
   second instance of it on 23001, found two and restarted it, until
   `querymode="1"`.
+
+## What it showed for Call of Duty and SoF2 (2026-10-28)
+
+- From an empty `data/`, each registered on its first heartbeat, on its
+  labelled listener: Call of Duty as `CoD`, protocol 6; United Offensive
+  as `CoDUO`, 22; Call of Duty 2 as `CoD2`, 118; Call of Duty 4 as
+  `CoD4`, 6; SoF2 as `SoF2`, 2004. Their tags were `COD-1`, `COD-1`,
+  `COD-2`, `COD-4` and `SoF2MP-1`.
+- `query.py` got each from its own listener; qstat `-cod2m` and `-cod4m`
+  got Call of Duty 2 and 4 and queried them. qstat `-sof2m` asks
+  `getservers 2004 SOF2FULL`, an option exmaster doesn't know, so it
+  asks for neither empty nor full servers and doesn't get an empty one.
+- Stopped by LinuxGSM, Call of Duty sent `heartbeat flatline`, and SoF2
+  `heartbeat flatline SoF2MP-1` twice; exmaster asked each, got no
+  answer, and dropped it 10 seconds later.
+- A capture of their game ports off loopback, IPv6 included, stayed
+  empty.
 

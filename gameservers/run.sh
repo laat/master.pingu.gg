@@ -6,7 +6,7 @@
 #   run.sh [service...]     all of them by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942 mohaa rtcw wet etl xnt wf}
+services=${*:-q3 q2 qw bf1942 mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
 # The image installs a game only into an empty serverfiles. q3, q2 and qw
@@ -57,7 +57,7 @@ sleep 3
 
 python3 -I query.py
 if command -v quakestat >/dev/null; then
-	for m in q3m:27950 rwm:27950 q2m:27900 qwm:27000; do
+	for m in q3m:27950 rwm:27950 q2m:27900 qwm:27000 cod2m:20710 cod4m:20810; do
 		quakestat "-${m%%:*}" "127.0.0.1:${m#*:}"
 		sleep 3.5
 	done

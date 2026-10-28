@@ -43,9 +43,10 @@ OS and architecture it runs on.
 A protocol can listen on several ports. A Quake 3 listener can have a
 label, `q3:27960=UrbanTerror`, to be a game's own master: its servers are
 listed in a store of their own, apart from Quake 3's, and every query to
-it is answered from that store. Urban Terror and Smokin' Guns need this,
-since on the wire they look like Quake 3 (see
-[Listeners](docs/quake3.md#listeners)). `Exmaster.stats()` and
+it is answered from that store. Urban Terror, Smokin' Guns, Call of
+Duty and Soldier of Fortune II need this, since on the wire they look
+like Quake 3 or name no game (see [Listeners](docs/quake3.md#listeners)
+and [Call of Duty](docs/quake3.md#call-of-duty)). `Exmaster.stats()` and
 `Exmaster.servers/1` take the label as the master's name. Quake 3 listens
 on `::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6.
 Quake 2 and QuakeWorld lists hold only IPv4 addresses, so they listen on
