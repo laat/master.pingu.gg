@@ -1,0 +1,35 @@
+# Real game servers for testing exmaster, from LinuxGSM's images
+# (github.com/GameServerManagers/docker-gameserver). See README.md.
+x-server: &server
+  network_mode: host
+  environment:
+    UID: ${HOST_UID:-1000}
+    GID: ${HOST_GID:-1000}
+    UPDATE_CHECK: "0"
+    UPDATE_ON_START: "false"
+
+services:
+  q3:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:q3
+    container_name: exmaster-q3
+    volumes:
+      - ./data/q3:/data
+      - ./config/q3server.cfg:/data/config-lgsm/q3server/q3server.cfg:ro
+      - ./config/q3/exmaster.cfg:/data/serverfiles/baseq3/exmaster.cfg:ro
+  q2:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:q2
+    container_name: exmaster-q2
+    volumes:
+      - ./data/q2:/data
+      - ./config/q2server.cfg:/data/config-lgsm/q2server/q2server.cfg:ro
+      - ./config/q2/exmaster.cfg:/data/serverfiles/baseq2/exmaster.cfg:ro
+  qw:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:qw
+    container_name: exmaster-qw
+    volumes:
+      - ./data/qw:/data
+      - ./config/qwserver.cfg:/data/config-lgsm/qwserver/qwserver.cfg:ro
+      - ./config/qw/exmaster.cfg:/data/serverfiles/ktx/server.cfg:ro
