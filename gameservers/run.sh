@@ -33,8 +33,8 @@ done
 
 # Quake 2 3.20's first heartbeat comes minutes after it starts, and the
 # ping setmaster sends goes out before its socket is open. The others
-# heartbeat at once; this makes it immediate for all three.
-# BF1942 heartbeats as it starts, and has no command for it.
+# heartbeat at once; this makes it immediate for all of them. BF1942
+# heartbeats as it starts too, and has no command for it.
 for g in $services; do
 	[ "$g" = bf1942 ] && continue
 	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null
