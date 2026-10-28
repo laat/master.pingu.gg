@@ -6,9 +6,8 @@ defmodule Exmaster.Config do
       q3:27950,q3:27900=UrbanTerror,q2:27900,qw:27000
       q3:[::1]:27950,q2:127.0.0.1:27900
 
-  A label is for Quake 3 listeners only; see "Listeners" in
-  laat/pingu.gg's `docs/quake3.md`. Quake 2 and QuakeWorld lists only hold IPv4, so their
-  host can't be IPv6.
+  A label is for Quake 3 listeners only. Quake 2 and QuakeWorld lists only
+  hold IPv4, so their host can't be IPv6.
   """
 
   @protocols %{"q3" => Exmaster.Q3.Master, "q2" => Exmaster.Q2.Master, "qw" => Exmaster.QW.Master}

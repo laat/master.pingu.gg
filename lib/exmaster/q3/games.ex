@@ -1,9 +1,7 @@
 defmodule Exmaster.Q3.Games do
   @moduledoc """
   The games with a heartbeat tag of their own, and the fingerprints that
-  tell games apart when their servers don't say. The same tables as
-  gomaster's `internal/q3/games.go` in laat/pingu.gg; see "Telling games apart" in
-  its `docs/quake3.md`.
+  tell games apart when their servers don't say.
   """
 
   # Most of these are anonymous: their servers and clients send no game

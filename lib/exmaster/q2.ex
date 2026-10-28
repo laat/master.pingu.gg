@@ -1,8 +1,7 @@
 defmodule Exmaster.Q2 do
   @moduledoc """
   The wire format of the Quake 2 master protocol (id's `server/sv_main.c`,
-  packetflinger/q2master, quakeservices/master). See `docs/quake2.md` in
-  laat/pingu.gg.
+  packetflinger/q2master, quakeservices/master).
 
   | Message | Direction | Format |
   |---|---|---|

@@ -3,16 +3,9 @@
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2 and
 QuakeWorld. Game servers heartbeat it and clients ask it for server lists.
 It keeps the lists in memory (ETS) and nothing else: no database, no
-server browser, no upstream masters. It is separate from
-[gomaster](https://github.com/laat/pingu.gg), which is no master: it only
-lists the servers masters like this one list.
+server browser, no upstream masters.
 [gameservers/](gameservers/README.md) runs real Quake 3, Quake 2 and
 QuakeWorld servers against it in Docker.
-
-The protocols are described in [docs/quake3.md](https://github.com/laat/pingu.gg/blob/main/docs/quake3.md),
-[docs/quake2.md](https://github.com/laat/pingu.gg/blob/main/docs/quake2.md) and
-[docs/quakeworld.md](https://github.com/laat/pingu.gg/blob/main/docs/quakeworld.md). The Quake 3 rules come
-from gomaster, which was a master too until it handed that over.
 
 ## Running
 
@@ -43,9 +36,9 @@ OS and architecture it runs on.
 A protocol can listen on several ports. A Quake 3 listener can have a
 label, `q3:27900=UrbanTerror`, to mirror a game's own master: servers that
 heartbeat it are listed under the label, and anonymous queries to it ask
-for that game (see "Listeners" in gomaster's [docs/quake3.md](https://github.com/laat/pingu.gg/blob/main/docs/quake3.md)). Quake 3 listens on
-`::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6. Quake 2
-and QuakeWorld lists hold only IPv4 addresses, so they listen on IPv4.
+for that game. Quake 3 listens on `::` with IPv4 mapped in, or on IPv4
+alone where there is no IPv6. Quake 2 and QuakeWorld lists hold only IPv4
+addresses, so they listen on IPv4.
 
 ## How it works
 
@@ -89,7 +82,7 @@ stateless challenge, an HMAC of the address, the listener's local
 address and port, a 5-second time bucket and the class the tag implies (`Exmaster.Q3.Challenge`). It stores
 nothing, so forged heartbeats can't fill memory. A server is listed for
 15 minutes after each valid reply, and is dropped then unless a heartbeat
-had it asked again. These rules come from gomaster:
+had it asked again. Other rules:
 
 - game names from fingerprints, labels, `gamename` and the tag;
 - unknown tags can't claim a built-in game, and are capped;
@@ -134,7 +127,7 @@ server whose slot gets taken is asked again at its next heartbeat.
   heartbeat is put off, since the check spent the minute, and is answered
   as one from an unlisted address when the check drops the old entry.
 
-## What gomaster does that this doesn't
+## What it doesn't do
 
 - Pulling lists from upstream masters, and the budget rules for them.
 - Polling servers every 5 minutes, and `getstatus` for player lists.
