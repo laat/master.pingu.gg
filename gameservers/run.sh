@@ -5,7 +5,7 @@
 #   run.sh [service...]     all of them by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942 bfv mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4}
+services=${*:-q3 q2 qw bf1942 bfv mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4 ut3}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
 # The image installs a game only into an empty serverfiles. q3, q2 and qw
@@ -81,10 +81,10 @@ done
 # ping setmaster sends goes out before its socket is open. The others
 # heartbeat at once; this makes it immediate for all of them. BF1942
 # heartbeats as it starts too, and has no command for it, nor has BF
-# Vietnam. Neither has UT2004, whose first heartbeat comes a minute after
-# it starts.
+# Vietnam, nor UT3, which heartbeats once it has logged in. Neither has
+# UT2004, whose first heartbeat comes a minute after it starts.
 for g in $services; do
-	case $g in bf1942 | bfv | ut2k4) continue ;; esac
+	case $g in bf1942 | bfv | ut2k4 | ut3) continue ;; esac
 	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null || true
 done
 sleep 3

@@ -194,6 +194,33 @@ defmodule Exmaster.QR2.MasterTest do
     assert Store.lookup(:exmaster_qr2, @server, 122_100).hostname == "changed"
   end
 
+  # UT3 puts its settings in mapname, 521 bytes of them.
+  test "values are kept to 1 KB, and a server's keys to 2 KB in all", %{ctx: ctx, state: state} do
+    settings = String.duplicate("s", 521)
+    long = String.duplicate("l", 2_000)
+
+    keys = [
+      {"gamename", "bfvietnam"},
+      {"mapname", settings},
+      {"first", long},
+      {"second", long},
+      {"third", "x"}
+    ]
+
+    payload = Enum.map(keys, fn {k, v} -> [k, 0, v, 0] end)
+    data = IO.iodata_to_binary([3, @key, payload, 0])
+    {sends, state} = Master.handle_packet(data, @server, ctx, 0, state)
+    {[_], _} = answer(ctx, state, challenge(sends), 0)
+
+    fields = Store.lookup(:exmaster_qr2, @server, 0).fields
+    assert fields["mapname"] == settings
+    # Copies, not views into the 5 KB packet.
+    assert :binary.referenced_byte_size(fields["mapname"]) == 521
+    assert fields["first"] == binary_part(long, 0, 1_024)
+    refute Map.has_key?(fields, "second")
+    refute Map.has_key?(fields, "third")
+  end
+
   test "a local address that isn't text is no local address", %{ctx: ctx, state: state} do
     data = <<3, @key::binary, "gamename", 0, "bfvietnam", 0, "localip0", 0, 0xFF, 0xFE, 0, 0>>
     {sends, state} = Master.handle_packet(data, @server, ctx, 0, state)

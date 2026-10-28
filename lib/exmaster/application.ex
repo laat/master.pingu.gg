@@ -11,8 +11,8 @@ defmodule Exmaster.Application do
       ├── Exmaster.Cluster          connects to the other nodes, if there are any
       └── Exmaster.Listeners        an Exmaster.Listener per UDP socket, and the
                                     TCP ones, Exmaster.GS.ListServer,
-                                    Exmaster.SB.ListServer and
-                                    Exmaster.UE2.Master
+                                    Exmaster.SB.ListServer, Exmaster.GP.Server
+                                    and Exmaster.UE2.Master
 
   The stores own the server lists, so a listener that restarts loses
   nothing; a store that restarts starts empty, and servers come back with
@@ -57,10 +57,16 @@ defmodule Exmaster.Application do
     Supervisor.start_link(children, strategy: :one_for_one, name: Exmaster.Supervisor)
   end
 
-  # GameSpy lists and UT2004 go over TCP; everything else is a UDP master.
+  # GameSpy lists and login and UT2004 go over TCP; everything else is a
+  # UDP master.
   defp listener(opts) do
-    if opts[:protocol] in [Exmaster.GS.ListServer, Exmaster.SB.ListServer, Exmaster.UE2.Master],
-      do: {opts[:protocol], opts},
-      else: {Exmaster.Listener, opts}
+    if opts[:protocol] in [
+         Exmaster.GS.ListServer,
+         Exmaster.SB.ListServer,
+         Exmaster.GP.Server,
+         Exmaster.UE2.Master
+       ],
+       do: {opts[:protocol], opts},
+       else: {Exmaster.Listener, opts}
   end
 end

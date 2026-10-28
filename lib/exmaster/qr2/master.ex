@@ -48,9 +48,13 @@ defmodule Exmaster.QR2.Master do
 
   # What an entry keeps of a heartbeat: each entry is copied to every list
   # and to the other nodes.
+  # UT3 puts its settings in mapname, 521 bytes of them, and clients may
+  # ask for any key; a heartbeat is one packet, under 1.4 KB as the SDK
+  # sends it.
   @max_keys 64
   @key_bytes 32
-  @value_bytes 64
+  @value_bytes 1_024
+  @info_bytes 2_048
 
   # Challenges: 20 characters, as OpenSpy's master sends them and the
   # games read them: 6 from an HMAC ([A-Za-z0-9]), "00" for no options,
@@ -149,14 +153,22 @@ defmodule Exmaster.QR2.Master do
   end
 
   # A heartbeat's keys as an entry keeps them: the first of a key, the
-  # first 64 keys, cut to 32 and 64 bytes.
+  # first 64 keys, cut to 32 bytes and their values to 1 KB, and no more
+  # than 2 KB of them in all.
   defp info(keys) do
     keys
     |> Enum.take(@max_keys)
-    |> Enum.reverse()
-    |> Map.new(fn {k, v} ->
-      {binary_slice(k, 0, @key_bytes), binary_slice(v, 0, @value_bytes)}
+    # Copied, so what is kept doesn't hold on to the packet it came in.
+    |> Enum.map(fn {k, v} ->
+      {:binary.copy(binary_slice(k, 0, @key_bytes)),
+       :binary.copy(binary_slice(v, 0, @value_bytes))}
     end)
+    |> Enum.reduce_while({[], 0}, fn {k, v}, {acc, size} ->
+      size = size + byte_size(k) + byte_size(v)
+      if size > @info_bytes, do: {:halt, {acc, size}}, else: {:cont, {[{k, v} | acc], size}}
+    end)
+    |> elem(0)
+    |> Map.new()
   end
 
   # Keeps a heartbeat aside, with its instance key, and the latest one

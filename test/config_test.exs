@@ -51,6 +51,9 @@ defmodule Exmaster.ConfigTest do
              ]
            ]
 
+    assert [[protocol: Exmaster.GP.Server, ip: nil, port: 29900, label: nil, store: nil]] =
+             Config.listeners!("gp:29900")
+
     assert Config.listeners!("ue2:28902") == [
              [
                protocol: Exmaster.UE2.Master,

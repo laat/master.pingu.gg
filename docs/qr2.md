@@ -1,12 +1,14 @@
-# GameSpy QR2 and server browsing: Battlefield Vietnam
+# GameSpy QR2 and server browsing: Battlefield Vietnam, Unreal Tournament 3
 
 This is GameSpy's second master protocol, Query and Reporting 2 (QR2),
 which game servers heartbeat over UDP, and its list side, server
-browsing, which clients ask over TCP; as Battlefield Vietnam speaks them,
-and how exmaster speaks them: `Exmaster.QR2` and `Exmaster.QR2.Master`
-(heartbeats), `Exmaster.SB`, `Exmaster.SB.Crypt` and
-`Exmaster.SB.ListServer` (lists). GameSpy's first protocol is in
-[gamespy.md](gamespy.md). The sources used here are:
+browsing, which clients ask over TCP; as Battlefield Vietnam and Unreal
+Tournament 3 speak them, and how exmaster speaks them: `Exmaster.QR2` and
+`Exmaster.QR2.Master` (heartbeats), `Exmaster.SB`, `Exmaster.SB.Crypt`
+and `Exmaster.SB.ListServer` (lists), and, for UT3, GameSpy's login,
+`Exmaster.GP` and `Exmaster.GP.Server` (see
+[Unreal Tournament 3](#unreal-tournament-3)). GameSpy's first protocol is
+in [gamespy.md](gamespy.md). The sources used here are:
 
 - The Battlefield Vietnam Linux dedicated server, 1.21, as LinuxGSM
   installs it: its strings and its traffic, against a master that logged
@@ -16,6 +18,13 @@ and how exmaster speaks them: `Exmaster.QR2` and `Exmaster.QR2.Master`
 - OpenSpy's masters (https://github.com/openspy/openspy-core, `code/qr`
   and `code/serverbrowsing`), which players use now.
 - aluigi's gslist.cfg, for the keys.
+- The UT3 Linux dedicated server, patch 5, as LinuxGSM installs it
+  (patched to OpenSpy's hosts): its strings and its traffic, against
+  logging stubs for each GameSpy service and then against exmaster, on
+  2026-10-28.
+- GameSpy's SDK `GP/gpiConnect.c`, and the logins of OpenSpy's web
+  backend, UniSpyServer, kr4uzi's gamespy-emulator, BattleSpy and
+  Battlelog's GameSpy service, and sokie's Section 8 emulator.
 - OpenSpy's list server, `master.openspy.net:28910`, asked once for
   `bfvietnam` on 2026-10-28: 11 servers. The client in
   `gameservers/query.py` decrypted that list, and then exmaster's.
@@ -90,8 +99,9 @@ instance key, `00`, then the address, as `CUZDhR007F0000015A3C` was for
 2. **Response, from that address, with that key.** The server is listed
    for 15 minutes, with what its heartbeat with that key said:
    `hostname`, `gamever`, `numplayers`, `maxplayers`, `localip0`,
-   `localport`, and the first 64 keys, cut to 32 bytes and their values
-   to 64, for lists. The master sends `FE FD 0A`.
+   `localport`, and for lists the first 64 keys, cut to 32 bytes and
+   their values to 1 KB, 2 KB of them at most (UT3 puts 521 bytes of
+   settings in `mapname`). The master sends `FE FD 0A`.
 3. **Heartbeat from a listed server, with its instance key.** It is asked
    again, at most once a minute, with that key; a heartbeat inside the
    minute has it asked when the minute is over. Only the listener it is
@@ -156,3 +166,66 @@ the error.
   for the time the list waits for the reply budget, which it pays 64 KB
   at a time (`Exmaster.Paid`), so a list larger than the budget's burst
   still goes out.
+
+## Unreal Tournament 3
+
+UT3 speaks QR2 and server browsing as `ut3pc`, with the key `nT2Mtz`:
+gslist.cfg gives `ut3pc` `UebAWH` and its Automatch (`ut3pcam`)
+`nT2Mtz`, and the server's response matched the second. Its query port is
+6500, and its QR2 heartbeats come from it.
+
+LinuxGSM's package patches the binary from GameSpy's hosts to OpenSpy's:
+`%s.available.openspy.net` and `%s.master.openspy.net` (QR2),
+`%s.ms%d.openspy.net` (lists; `ut3pc.ms3`), `gpcm.openspy.net` (login,
+TCP 29900), `gpsp.openspy.net` (profile search), `key.openspy.net` (CD
+keys, UDP 29910), SOAP services at `%s.auth.pubsvs.openspy.net`,
+`%s.comp.pubsvs.openspy.net` and `%s.sake.openspy.net`, and
+`motd.openspy.net`; it also looked up `gamecontent.unrealtournament3.com`,
+which doesn't resolve.
+
+### Logging in
+
+The server won't heartbeat until it has logged into GameSpy Presence
+with `-login` and `-password`; with neither, it checked availability and
+stopped ("Failed to register game with online service"). Against stubs:
+
+1. An available check, then a login on TCP 29900: `\login\\challenge\<32>\uniquenick\exmaster\partnerid\0\response\<md5>\port\…\productid\11097\gamename\ut3pc\namespaceid\64\sdkrevision\3\id\1\final\`.
+2. Once logged in: `\status\` and `\updatepro\` on that connection,
+   which it holds; the QR2 heartbeat (`statechanged 1`) and the response
+   to its challenge; a SOAP `LoginUniqueNick` to the AuthService, which
+   failed against the stub without stopping anything; then QR2 heartbeats
+   every 60 seconds, and a QR2 keepalive and a CD key packet every 20.
+3. A login answered with a wrong proof: it hangs up at once, logs in again
+   about every 27 seconds, and never heartbeats. Answered "no such
+   uniquenick" (265), the same; it never registers a profile itself
+   (`\newuser\`), whatever `bHasGameSpyAccount` says.
+
+The proof is why. With `h` the MD5 of the password in hex, the client
+sends MD5(h, 48 spaces, the user, its challenge, the master's challenge,
+h), and wants back the same with the challenges swapped. So the master
+has to know h for every name it lets in. GameSpy kept accounts, and so do
+the reimplementations (OpenSpy's web backend, UniSpyServer, kr4uzi's,
+BattleSpy, Battlelog's); sokie's Section 8 emulator learns a password from
+the game's `\newuser\` after answering 265, which UT3's server doesn't
+send.
+
+exmaster keeps no accounts: `gp` (`Exmaster.GP.Server`) lets any name in
+with one public password, `pingu` unless `EXMASTER_GP_PASSWORD` says
+another. It answers `\lc\2` with the proof, a profile id from a hash of
+the name (the first 31 bits of its SHA-256, plus one), a login ticket, and
+empty buddy and block lists, which the SDK waits for, and keeps the
+connection until the client logs out or has sent nothing for 5 minutes
+(the SDK sends `\ka\` every 2). A login by token, or with another
+password, gets error 260. The login only gets a server to heartbeat;
+whether it is listed is up to QR2's challenge, as for any QR2 game.
+
+- On exmaster's restart the server logged in again about 25 seconds
+  later, heartbeat at once, and was listed.
+- Stopped, the server sends nothing, so it stays listed until it expires,
+  as Battlefield 1942 does.
+- Not done: profile search, buddies, the SOAP services (logins, stats,
+  storage), CD keys, NAT negotiation. A dedicated server goes on without
+  them; UT3's clients haven't been tried.
+- Limits: 4,096 connections at once; per IP, 40 at once and 10 new at
+  once, then one a second; 10 seconds to log in; 4 KB without a message's
+  end.
