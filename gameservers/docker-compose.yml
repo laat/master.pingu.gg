@@ -47,6 +47,7 @@ services:
       - master2.udpsoft.com:127.0.0.3
     volumes:
       - ./data/bf1942:/data
+      - ./config/bf1942server.cfg:/data/config-lgsm/bf1942server/bf1942server.cfg:ro
   mohaa:
     <<: *server
     image: ghcr.io/gameservermanagers/gameserver:mohaa
@@ -61,3 +62,38 @@ services:
     volumes:
       - ./data/mohaa:/data
       - ./config/mohaaserver.cfg:/data/config-lgsm/mohaaserver/mohaaserver.cfg:ro
+  rtcw:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:rtcw
+    container_name: exmaster-rtcw
+    volumes:
+      - ./data/rtcw:/data
+      - ./config/rtcwserver.cfg:/data/config-lgsm/rtcwserver/rtcwserver.cfg:ro
+  wet:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:wet
+    container_name: exmaster-wet
+    volumes:
+      - ./data/wet:/data
+      - ./config/wetserver.cfg:/data/config-lgsm/wetserver/wetserver.cfg:ro
+  etl:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:etl
+    container_name: exmaster-etl
+    volumes:
+      - ./data/etl:/data
+      - ./config/etlserver.cfg:/data/config-lgsm/etlserver/etlserver.cfg:ro
+  xnt:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:xnt
+    container_name: exmaster-xnt
+    volumes:
+      - ./data/xnt:/data
+      - ./config/xntserver.cfg:/data/config-lgsm/xntserver/xntserver.cfg:ro
+  wf:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:wf
+    container_name: exmaster-wf
+    volumes:
+      - ./data/wf:/data
+      - ./config/wfserver.cfg:/data/config-lgsm/wfserver/wfserver.cfg:ro

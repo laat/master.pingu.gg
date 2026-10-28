@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs five game servers from LinuxGSM's images
+`docker-compose.yml` runs ten game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -11,6 +11,11 @@ which install the original server binaries and game data:
 | `qw` | nQuake's MVDSV 0.32 with KTX | 27500 | 127.0.0.1:27000 |
 | `bf1942` | DICE's bf1942_lnxded 1.61, patched to 1.612 | 14567, queries 23000 | 127.0.0.2:27900, lists TCP 28900 |
 | `mohaa` | mohaa_lnxded 1.12 with the Reborn patch RC3.5.1 | 12203, queries 12300 | 127.0.0.2:27900, lists TCP 28900 |
+| `rtcw` | iortcw's iowolfded | 27961 | 127.0.0.1:27950 |
+| `wet` | id's etded 2.60b | 27962 | 127.0.0.1:27950 |
+| `etl` | ET: Legacy's etlded | 27963 | 127.0.0.1:27950 |
+| `xnt` | Xonotic's dedicated server (DarkPlaces) | 26000 | 127.0.0.1:27950 |
+| `wf` | Warfork's wf_server, from Steam | 44400, HTTP 44444 | 127.0.0.1:27950 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy master is on 127.0.0.2, since Quake 2's has 127.0.0.1:27900 and
@@ -24,6 +29,7 @@ gameservers/run.sh                  # start the servers, show the lists
 gameservers/run.sh bf1942           # or some of them
 python3 -I gameservers/query.py     # the lists, as clients ask for them
 quakestat -q3m 127.0.0.1:27950      # qstat (apt install qstat) asks each server too
+quakestat -rwm 127.0.0.1:27950
 quakestat -gsm,bfield1942 127.0.0.2:28900
 quakestat -gsm,mohaa 127.0.0.2:28900
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
@@ -31,12 +37,16 @@ elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostnam
 docker compose -f gameservers/docker-compose.yml down
 ```
 
-Server files are kept in `data/` (ignored by git), about 1.3 GB for the
-Quake servers, 170 MB for Battlefield 1942 and 3 GB for MOH:AA. The
-image installs a game only into an empty `serverfiles`, and Battlefield
-1942 reads its config from there, so `run.sh` installs it with `docker
-compose run bf1942 auto-install` and copies
-`config/bf1942/serversettings.con` in before it first starts.
+Server files are kept in `data/` (ignored by git): about 1.3 GB for the
+Quake servers, 170 MB for Battlefield 1942, 3 GB for MOH:AA, and 3.6 GB
+for RTCW, ET, ET: Legacy, Xonotic and Warfork together. The image
+installs a game only into an empty `serverfiles`. q3, q2 and qw mount a
+config there, and Battlefield 1942 reads its config from there, so
+`run.sh` installs those four first, with only `/data` mounted, whenever
+their executable is missing, and copies
+`config/bf1942/serversettings.con` in before Battlefield 1942 first
+starts. The others mount only their LinuxGSM instance config, which is
+outside `serverfiles`, and the image installs them as they first start.
 
 ## Keeping the test servers off public masters
 
@@ -78,16 +88,30 @@ own from `config/` instead:
   before `+map` (see [docs/gamespy.md](../docs/gamespy.md#medal-of-honor-allied-assault))
   and `querymode="1"`, without which LinuxGSM's monitor, which can't
   query it, starts a second instance.
+- RTCW, ET, ET: Legacy, Xonotic and Warfork don't run LinuxGSM's server
+  configs at all: the start line in their instance config sets what they
+  need, the master (`sv_master1`, Warfork's `masterservers`) included,
+  and binds 127.0.0.1. LinuxGSM's RTCW config sets its public masters
+  with `seta`, which iortcw would keep in its own config, so it must never
+  have run in `data/rtcw`. ET 2.60b heartbeats port 27950 whatever port
+  `sv_master1` names. iortcw and ET: Legacy open IPv6 sockets on `[::]`
+  unless told otherwise (`net_enabled 1`, `net_ip6 ::1`), as do Xonotic
+  (`net_address_ipv6 ::1`) and Warfork (`sv_ip6 ::1`). Xonotic also
+  heartbeats three masters of its own by IP address,
+  `sv_masterextra1`-`3`, which `extra_hosts` can't catch; its start line
+  clears them.
 
-q3ded and quake2 are bound to 127.0.0.1, so they can't send anywhere else.
-A capture of game-port UDP off loopback while the servers start is empty:
+q3ded, quake2 and the five above are bound to loopback, so they can't
+send anywhere else. A capture of game-port UDP off loopback while the
+servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500) and not host 127.0.0.1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400) and not host 127.0.0.1 and not host ::1'
 ```
 
-LinuxGSM's monitor can't query Quake 2 3.20 or MVDSV with gamedig (qstat
-can) and restarts them after five failures, every three minutes or so, so
+LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
+MOH:AA with gamedig (qstat can) and restarts them after five failures,
+every three minutes or so, or starts a second instance, so
 `querymode="1"` has it check the process only.
 
 ## What it showed (2026-10-28)
@@ -135,4 +159,21 @@ can) and restarts them after five failures, every three minutes or so, so
 - `query.py`, a client asking as `mohaa_lnxded` does (no `\enctype\`),
   and qstat (`-gsm,mohaa`) got the list; qstat then queried the server
   (`0/14 dm/mohdm1 Round-Based-Match exmaster-test`).
+
+## What it showed for RTCW, ET, ET: Legacy, Xonotic and Warfork (2026-10-28)
+
+The five, with q3, q2, qw and bf1942, from an empty `data/`:
+
+- Each registered on its first heartbeat: RTCW as `wolfmp`, protocol 60;
+  ET and ET: Legacy as `et`, 84; Xonotic as `Xonotic`, 3; Warfork as
+  `Warfork`, 26. `query.py` got each from its own query, and qstat
+  `-rwm` got RTCW and queried it.
+- A capture of their game ports off loopback stayed empty.
+- LinuxGSM started ET and ET: Legacy on port 27960, taken from its own
+  server configs, until the ports were written out on their start lines;
+  each Quake 3 engine then moved one port up from a taken one, which put
+  RTCW on 27962.
+- LinuxGSM's monitor, which can't query Battlefield 1942, started a
+  second instance of it on 23001, found two and restarted it, until
+  `querymode="1"`.
 

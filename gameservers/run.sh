@@ -3,19 +3,32 @@
 # GameSpy) and shows the lists, from query.py and from qstat. See
 # README.md.
 #
-#   run.sh [service...]     q3 q2 qw bf1942 mohaa by default
+#   run.sh [service...]     all of them by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942 mohaa}
+services=${*:-q3 q2 qw bf1942 mohaa rtcw wet etl xnt wf}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
-# BF1942 reads its config from serverfiles, which the image installs into
-# only when it is empty, so it is installed first and given its config
-# before it starts: LinuxGSM's listens on every address.
+# The image installs a game only into an empty serverfiles. q3, q2 and qw
+# mount a config there, and BF1942 reads its config from there, so they
+# are installed first, with nothing but /data mounted, unless their
+# executable is there already.
+install_first() {
+	case " $services " in *" $1 "*)
+		[ -e "data/$1/serverfiles/$2" ] && return
+		mkdir -p "data/$1"
+		docker run --rm -e UID="$HOST_UID" -e GID="$HOST_GID" -v "$PWD/data/$1:/data" \
+			"ghcr.io/gameservermanagers/gameserver:$1" auto-install || true
+	esac
+}
+install_first q3 q3ded
+install_first q2 quake2
+install_first qw mvdsv
+install_first bf1942 start.sh
+
+# BF1942's config goes in before it starts: LinuxGSM's listens on every
+# address.
 case " $services " in *" bf1942 "*)
-	if [ ! -e data/bf1942/serverfiles/start.sh ]; then
-		docker compose run --rm bf1942 auto-install || true
-	fi
 	cp config/bf1942/serversettings.con data/bf1942/serverfiles/mods/bf1942/settings/
 esac
 
@@ -37,13 +50,13 @@ done
 # heartbeats as it starts too, and has no command for it.
 for g in $services; do
 	[ "$g" = bf1942 ] && continue
-	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null
+	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null || true
 done
 sleep 3
 
 python3 -I query.py
 if command -v quakestat >/dev/null; then
-	for m in q3m:27950 q2m:27900 qwm:27000; do
+	for m in q3m:27950 rwm:27950 q2m:27900 qwm:27000; do
 		quakestat "-${m%%:*}" "127.0.0.1:${m#*:}"
 		sleep 3.5
 	done

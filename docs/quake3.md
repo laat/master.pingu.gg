@@ -321,16 +321,22 @@ which a master doesn't ask for.
 | Tremulous | 69–71 | trunk: no; GPP/1.3: `Tremulous` | tag `Tremulous` |
 | Jedi Outcast (+JK2MV) | 15, 16 | no | info `truejedi`, `wdisable`, `fdisable`; status `JK2MV` |
 | Jedi Academy (+OpenJK) | 25, 26 | no | as JK2; info `autodemo` on OpenJK |
-| Soldier of Fortune II | 2002, 2004 | no | status `com_gamename` `SoF2MP` |
+| Soldier of Fortune II | 2002, 2004 | no | tag `SoF2MP-1`; status `com_gamename` `SoF2MP` |
 | RTCW (+iortcw) | 60 (1.0: 57) | `wolfmp` | tag `Wolfenstein-1` |
 | ET 2.60b, ET: Legacy, ETe | 84 (`ET 3.00 - TB` servers: 82) | `et` | tag `EnemyTerritory-1`; ET: Legacy adds info `version` `ET Legacy v…` |
 | Warsow, Warfork | 22 (Warfork also 24, 26) | yes | |
 | Nexuiz, Xonotic | 3 | yes | tag `DarkPlaces` |
 
-Jedi Outcast, Jedi Academy and Soldier of Fortune II need nothing: their
-protocols are their own, and an anonymous query for a protocol exmaster
-has no game for matches every server that reported it. They are listed
-as `Quake3Arena`, which their tag implies.
+Jedi Outcast and Jedi Academy need nothing: their protocols are their
+own, and an anonymous query for a protocol exmaster has no game for
+matches every server that reported it. They are listed as `Quake3Arena`,
+which their tag implies.
+
+Soldier of Fortune II isn't listed. Raven's `sof2ded` 1.03 heartbeats
+`SoF2MP-1`, which isn't a built-in tag, sends no `gamename`, and always
+heartbeats port 20110, whatever port `sv_master1` names, so exmaster
+rejects it for having no game name. A listener labelled for it on 20110
+would list it.
 
 OpenArena is the one that can't be told from Quake 3 by `infoResponse`:
 at protocol 71 both send `Quake3Arena` or nothing, and 14 of the 76

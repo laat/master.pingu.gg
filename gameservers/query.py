@@ -64,7 +64,8 @@ def six_byte(port, packet, header):
 
 for query in [b"getservers 68", b"getservers 68 empty", b"getservers 68 empty full",
               b"getservers Quake3Arena 68 empty", b"getserversExt Quake3Arena 68 empty",
-              b"getservers 84 empty"]:
+              b"getservers 60 empty", b"getservers 84 empty",
+              b"getserversExt Xonotic 3 empty", b"getservers Warfork 26 empty"]:
     print("q3 %-36s %s" % (query.decode(), q3(query)))
 print("q2 %-36s %s" % ("query", six_byte(27900, b"query\n", b"servers ")))
 print("qw %-36s %s" % ("c", six_byte(27000, b"c\n", b"d\n")))
