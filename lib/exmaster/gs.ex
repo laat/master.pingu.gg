@@ -18,8 +18,9 @@ defmodule Exmaster.GS do
   # The games the master lists, by the gamename their servers heartbeat and
   # clients ask for, with their secret key: it signs a server's reply to a
   # challenge and encrypts lists. Battlefield 1942's is in its binaries'
-  # ServerListReadList and in aluigi's gslist.cfg.
-  @games %{"bfield1942" => "HpWx9z"}
+  # ServerListReadList and in aluigi's gslist.cfg; Medal of Honor: Allied
+  # Assault's is in gslist.cfg, and its servers' \\validate\\ matches it.
+  @games %{"bfield1942" => "HpWx9z", "mohaa" => "M5Fdwc"}
 
   @doc "The secret key of a game the master lists, or nil."
   def key(game), do: Map.get(@games, game)

@@ -1,7 +1,8 @@
 defmodule Exmaster.GS.Master do
   @moduledoc """
   The GameSpy master's heartbeat side, on UDP 27900 by default: GameSpy's
-  first protocol, as Battlefield 1942 speaks it. Wire format in
+  first protocol, as Battlefield 1942 and Medal of Honor: Allied Assault
+  speak it. Wire format in
   `Exmaster.GS`; clients get the lists over TCP from
   `Exmaster.GS.ListServer`. See `docs/gamespy.md`.
 
@@ -16,7 +17,8 @@ defmodule Exmaster.GS.Master do
 
   The server is listed for `server_ttl` after each reply, and each
   heartbeat has it asked again (see "Asking listed servers again" below).
-  `\\statechanged\\2` comes when it exits.
+  `\\statechanged\\2` comes when it exits; MOH:AA sends the same heartbeat
+  then as at any other time, so it stays listed until it expires.
   """
   @behaviour Exmaster.Protocol
 
@@ -30,8 +32,8 @@ defmodule Exmaster.GS.Master do
   @hostname_length 63
 
   # The games the master lists, in a fixed order: a challenge starts with
-  # its game's place in it.
-  @games ["bfield1942"]
+  # its game's place in it, so new ones go last.
+  @games ["bfield1942", "mohaa"]
 
   # Challenges: [A-Za-z0-9], the game's character then 15 from an HMAC.
   # Real servers took up to 65, gsseckey's limit.

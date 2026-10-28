@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs four game servers from LinuxGSM's images
+`docker-compose.yml` runs five game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -10,10 +10,11 @@ which install the original server binaries and game data:
 | `q2` | id's quake2 3.20 | 27910 | 127.0.0.1:27900 |
 | `qw` | nQuake's MVDSV 0.32 with KTX | 27500 | 127.0.0.1:27000 |
 | `bf1942` | DICE's bf1942_lnxded 1.61, patched to 1.612 | 14567, queries 23000 | 127.0.0.2:27900, lists TCP 28900 |
+| `mohaa` | mohaa_lnxded 1.12 with the Reborn patch RC3.5.1 | 12203, queries 12300 | 127.0.0.2:27900, lists TCP 28900 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy master is on 127.0.0.2, since Quake 2's has 127.0.0.1:27900 and
-Battlefield 1942 can't heartbeat another port.
+Battlefield 1942 and MOH:AA can't heartbeat another port.
 
 ```
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.2:27900,gsl:127.0.0.2:28900 \
@@ -24,17 +25,18 @@ gameservers/run.sh bf1942           # or some of them
 python3 -I gameservers/query.py     # the lists, as clients ask for them
 quakestat -q3m 127.0.0.1:27950      # qstat (apt install qstat) asks each server too
 quakestat -gsm,bfield1942 127.0.0.2:28900
+quakestat -gsm,mohaa 127.0.0.2:28900
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
 docker compose -f gameservers/docker-compose.yml down
 ```
 
 Server files are kept in `data/` (ignored by git), about 1.3 GB for the
-Quake servers and 170 MB for Battlefield 1942. The image installs a game
-only into an empty `serverfiles`, and Battlefield 1942 reads its config
-from there, so `run.sh` installs it with `docker compose run bf1942
-auto-install` and copies `config/bf1942/serversettings.con` in before it
-first starts.
+Quake servers, 170 MB for Battlefield 1942 and 3 GB for MOH:AA. The
+image installs a game only into an empty `serverfiles`, and Battlefield
+1942 reads its config from there, so `run.sh` installs it with `docker
+compose run bf1942 auto-install` and copies
+`config/bf1942/serversettings.con` in before it first starts.
 
 ## Keeping the test servers off public masters
 
@@ -66,6 +68,16 @@ own from `config/` instead:
   config sets `game.serverIP 127.0.0.1`, which binds the game and
   All-Seeing Eye ports; its GameSpy query port, 23000, listens on 0.0.0.0
   whatever it says.
+- MOH:AA heartbeats `master.gamespy.com` only; the Reborn patch's
+  `mohmaster.2015.com` and GameSpy's `master0` and `master1`, named in its
+  config, aren't contacted, and none of them resolve. `extra_hosts` points
+  the first at exmaster on 127.0.0.2 and the others at 127.0.0.3. Its
+  instance config, `config/mohaaserver.cfg`, is mounted outside
+  `serverfiles`, so the image installs it; it binds 127.0.0.1, but the
+  query port, 12300, listens on 0.0.0.0. It also sets `sv_gamespy 1`
+  before `+map` (see [docs/gamespy.md](../docs/gamespy.md#medal-of-honor-allied-assault))
+  and `querymode="1"`, without which LinuxGSM's monitor, which can't
+  query it, starts a second instance.
 
 q3ded and quake2 are bound to 127.0.0.1, so they can't send anywhere else.
 A capture of game-port UDP off loopback while the servers start is empty:
@@ -111,4 +123,16 @@ can) and restarts them after five failures, every three minutes or so, so
   enctype 2, to `query.py` without encryption, and to qstat, which asks
   as GameSpy Arcade for the text form and then queried the server
   (`0/16 berlin conquest exmaster test`).
+
+## What it showed for MOH:AA (2026-10-28)
+
+- Installed from an empty `data/` by the image itself, since nothing is
+  mounted under `serverfiles`. It registered on its first heartbeat,
+  answering exmaster's challenge under `M5Fdwc`.
+- Every heartbeat was `\heartbeat\12300\gamename\mohaa\statechanged\`:
+  at start, on `send heartbeat`, 300 seconds after that one, and when
+  LinuxGSM stopped it. After the stop it stayed listed, as expected.
+- `query.py`, a client asking as `mohaa_lnxded` does (no `\enctype\`),
+  and qstat (`-gsm,mohaa`) got the list; qstat then queried the server
+  (`0/14 dm/mohdm1 Round-Based-Match exmaster-test`).
 

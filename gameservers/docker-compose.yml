@@ -47,3 +47,17 @@ services:
       - master2.udpsoft.com:127.0.0.3
     volumes:
       - ./data/bf1942:/data
+  mohaa:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:mohaa
+    container_name: exmaster-mohaa
+    # Its GameSpy master, to exmaster on 127.0.0.2; the masters in its
+    # config, which it doesn't contact, to 127.0.0.3, where nothing listens.
+    extra_hosts:
+      - master.gamespy.com:127.0.0.2
+      - master0.gamespy.com:127.0.0.3
+      - master1.gamespy.com:127.0.0.3
+      - mohmaster.2015.com:127.0.0.3
+    volumes:
+      - ./data/mohaa:/data
+      - ./config/mohaaserver.cfg:/data/config-lgsm/mohaaserver/mohaaserver.cfg:ro
