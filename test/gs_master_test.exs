@@ -163,4 +163,26 @@ defmodule Exmaster.GS.MasterTest do
     {[], _} = Master.tick(ctx, 70_000, state)
     assert Store.lookup(:exmaster_gs, @moh, 70_000)
   end
+
+  # Unreal Tournament's reply to \info\\secure\, from its query port.
+  @ut {@ip, 7_778}
+  @ut_info "\\hostname\\exmaster test\\hostport\\7777\\maptitle\\Deck #16 ][\\mapname\\DM-Deck16][\\gametype\\DeathMatchPlus\\numplayers\\0\\maxplayers\\10\\gamemode\\openplaying\\gamever\\469\\minnetver\\432"
+
+  test "Unreal Tournament, which answers 6 characters of a challenge", %{
+    ctx: ctx,
+    state: state
+  } do
+    # The heartbeat comes from an uplink's own port and names the query port.
+    {[{"\\info\\\\secure\\" <> challenge, @ut}], state} =
+      Master.handle_packet("\\heartbeat\\7778\\gamename\\ut", {@ip, 7_779}, ctx, 0, state)
+
+    assert challenge =~ ~r/\A[A-Za-z0-9]{6}\z/
+    # As UT does: the response to the challenge's first 6 characters.
+    validate = GS.validate(binary_part(challenge, 0, 6), "Z5Nfb0")
+    payload = @ut_info <> "\\validate\\#{validate}\\queryid\\1.1\\final\\"
+    {[], _} = Master.handle_packet(payload, @ut, ctx, 0, state)
+
+    assert %{game: "ut", hostname: "exmaster test", max_clients: 10, version: "469"} =
+             Store.lookup(:exmaster_gs, @ut, 0)
+  end
 end

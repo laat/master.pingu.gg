@@ -151,4 +151,25 @@ defmodule Exmaster.GS.ListServerTest do
 
     assert read_all(s, "") == GS.encode_list([moh]) <> "\\final\\"
   end
+
+  test "Unreal Tournament's request: its game, then a text list", %{port: port} do
+    now = Exmaster.now()
+    ut = {{198, 51, 100, 7}, 7_778}
+
+    :ok =
+      Store.put(
+        :exmaster_gs,
+        ut,
+        %{game: "ut", clients: 0, seen: now, expires: now + 60_000},
+        now,
+        nil
+      )
+
+    s = connect(port)
+    {:ok, "\\basic\\\\secure\\" <> challenge} = :gen_tcp.recv(s, 0, 1_000)
+    validate = GS.validate(binary_part(challenge, 0, 6), "Z5Nfb0")
+    :ok = :gen_tcp.send(s, "\\gamename\\ut\\location\\0\\validate\\#{validate}\\final\\")
+    :ok = :gen_tcp.send(s, "\\list\\\\gamename\\ut\\final\\")
+    assert read_all(s, "") == "\\ip\\198.51.100.7:7778\\final\\"
+  end
 end

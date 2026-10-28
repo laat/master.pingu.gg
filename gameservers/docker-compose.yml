@@ -146,3 +146,18 @@ services:
     volumes:
       - ./data/sof2:/data
       - ./config/sof2server.cfg:/data/config-lgsm/sof2server/sof2server.cfg:ro
+  ut99:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:ut99
+    container_name: exmaster-ut99
+    # 469's own default masters, which it adds to an ini it upgrades, to
+    # 127.0.0.3, where nothing listens.
+    extra_hosts:
+      - master.oldunreal.com:127.0.0.3
+      - master2.oldunreal.com:127.0.0.3
+      - master.333networks.com:127.0.0.3
+      - master.hypercoop.tk:127.0.0.3
+      - master.qtracker.com:127.0.0.3
+    volumes:
+      - ./data/ut99:/data
+      - ./config/ut99server.cfg:/data/config-lgsm/ut99server/ut99server.cfg:ro

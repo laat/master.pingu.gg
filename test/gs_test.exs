@@ -34,6 +34,10 @@ defmodule Exmaster.GSTest do
     # to a challenge of its own and one of exmaster's.
     assert GS.validate("ABCDEFGHIJKLMNOP", GS.key("mohaa")) == "iA2tel803f+Kf6Ac6g+TZQAA"
     assert GS.validate("BCclFjTSY3zEfkmE", GS.key("mohaa")) == "avTJ59Xfa34TVbvOEjwO0gAA"
+    # An Unreal Tournament server (OldUnreal 469f), which answers the first 6
+    # characters of a challenge only.
+    assert GS.validate("CjUukF", GS.key("ut")) == "u5TIDAlK"
+    assert GS.validate("CbAYACY3qB5wv5GZ", GS.key("ut")) =~ ~r/^uwYjRwsr/
   end
 
   test "lists" do

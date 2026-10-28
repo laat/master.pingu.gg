@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs fifteen game servers from LinuxGSM's images
+`docker-compose.yml` runs sixteen game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -21,6 +21,7 @@ which install the original server binaries and game data:
 | `cod2` | Activision's cod2_lnxded 1.3 | 28962 | 127.0.0.1:20710, labelled `CoD2` |
 | `cod4` | CoD4X 1.8's cod4x18_dedrun | 28964 | 127.0.0.1:20810, labelled `CoD4` |
 | `sof2` | Raven's sof2ded 1.03 | 20100 | 127.0.0.1:20110, labelled `SoF2` |
+| `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.2:27900, lists TCP 28900 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy master is on 127.0.0.2, since Quake 2's has 127.0.0.1:27900 and
@@ -39,21 +40,23 @@ quakestat -rwm 127.0.0.1:27950
 quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
 quakestat -gsm,bfield1942 127.0.0.2:28900
 quakestat -gsm,mohaa 127.0.0.2:28900
+quakestat -gsm,ut 127.0.0.2:28900
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
 docker compose -f gameservers/docker-compose.yml down
 ```
 
 Server files are kept in `data/` (ignored by git): about 1.3 GB for the
-Quake servers, 170 MB for Battlefield 1942, 3 GB for MOH:AA, and 3.6 GB
-for RTCW, ET, ET: Legacy, Xonotic and Warfork together. The image
-installs a game only into an empty `serverfiles`. q3, q2 and qw mount a
-config there, and Battlefield 1942 reads its config from there, so
-`run.sh` installs those four first, with only `/data` mounted, whenever
-their executable is missing, and copies
-`config/bf1942/serversettings.con` in before Battlefield 1942 first
-starts. The others mount only their LinuxGSM instance config, which is
-outside `serverfiles`, and the image installs them as they first start.
+Quake servers, 170 MB for Battlefield 1942, 3 GB for MOH:AA, 3.6 GB for
+RTCW, ET, ET: Legacy, Xonotic and Warfork together, and 420 MB for
+Unreal Tournament. The image installs a game only into an empty
+`serverfiles`. q3, q2 and qw mount a config there, and Battlefield 1942
+and Unreal Tournament read theirs from there, so `run.sh` installs those
+five first, with only `/data` mounted, whenever their executable is
+missing, then puts Battlefield 1942's config in place and rewrites
+Unreal Tournament's before they start. The others mount only their
+LinuxGSM instance config, which is outside `serverfiles`, and the image
+installs them as they first start.
 
 ## Keeping the test servers off public masters
 
@@ -118,6 +121,15 @@ own from `config/` instead:
   takes `sv_master1` but sends to its port 20110, whatever port it
   names; like the five above, none of them runs LinuxGSM's server
   config.
+- Unreal Tournament's masters are `ServerActors` uplink lines in its ini,
+  which is in `serverfiles`, and LinuxGSM's names fourteen public ones.
+  `run.sh` rewrites it before it starts: the uplinks become one to
+  exmaster on 127.0.0.2, the LAN beacon (`IpDrv.UdpBeacon`) and web
+  admin (`UWeb.WebServer`, on 8076 with the password `admin`) go, and
+  `FirstRun` becomes 469. OldUnreal 469 upgrades an ini with an older
+  `FirstRun` and adds its four default masters to it, which `extra_hosts`
+  points at 127.0.0.3 should that happen. `-multihome=127.0.0.1` binds
+  its sockets to loopback.
 
 q3ded, quake2 and the others above are bound to loopback, so they can't
 send anywhere else. A capture of game-port UDP off loopback while the
@@ -212,4 +224,21 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   answer, and dropped it 10 seconds later.
 - A capture of their game ports off loopback, IPv6 included, stayed
   empty.
+
+## What it showed for Unreal Tournament (2026-10-28)
+
+- It heartbeats `\heartbeat\7778\gamename\ut` from its uplink's port,
+  7779, every 55 seconds, and stopping it sends nothing.
+- It answered exmaster's first challenges, 16 characters, with an
+  8-character `\validate\`, the response to their first 6 characters,
+  and wasn't listed until exmaster sent it 6. Then it registered on its
+  next heartbeat.
+- A client asking as UT's browser does (`\list\\gamename\ut`) got
+  `\ip\127.0.0.1:7778\final\`; qstat (`-gsm,ut`) got the list and
+  queried the server (`0/10 DM-Deck16][ DeathMatchPlus exmaster test`).
+- Started once with `FirstRun=0`, 469 set it to 469 and added its four
+  default masters to the uplinks, without contacting them on that start.
+  With `FirstRun=469` from the start, the ini kept only exmaster's.
+- No game-port traffic left loopback, and no DNS lookup for a master
+  name was made.
 
