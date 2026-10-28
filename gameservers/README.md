@@ -113,13 +113,13 @@ own from `config/` instead:
   and `cod4master.activision.com`), each on a port of its own, so
   `extra_hosts` points those at 127.0.0.1, where exmaster has a labelled
   listener for each. The binaries also name Activision's CD-key servers
-  and CoD4X's update server, which go to 127.0.0.3. CoD4X listens on
-  `[::]:28964` too, whatever `net_ip` says. SoF2 takes `sv_master1` but
+  and CoD4X's update server, which go to 127.0.0.3. CoD4X opens an IPv6
+  socket too, on `[::]` unless `net_ip6 ::1` keeps it on loopback. SoF2 takes `sv_master1` but
   sends to its port 20110, whatever port it names; like the five above,
   none of them runs LinuxGSM's server config.
 
-q3ded, quake2 and the others above are bound to loopback (CoD4X's IPv6
-socket aside), so they can't send anywhere else. A capture of game-port UDP off loopback while the
+q3ded, quake2 and the others above are bound to loopback, so they can't
+send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
