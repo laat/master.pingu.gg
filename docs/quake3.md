@@ -218,7 +218,7 @@ the only message that is trusted.
 A listed server is only asked through the listener it is listed through:
 behind NAT it may only take packets from the address it heartbeats.
 Heartbeats and flatlines for it that come in on another listener are
-ignored. The rate limits are in the [README](../README.md#limits-for-all-three).
+ignored. The rate limits are in the [README](../README.md#limits-for-all-of-them).
 
 ### Challenges
 

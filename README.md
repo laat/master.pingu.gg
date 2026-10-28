@@ -1,14 +1,15 @@
 # master.pingu.gg
 
-Master servers in Elixir/OTP for Quake 3 based games, Quake 2 and
-QuakeWorld. Game servers heartbeat it and clients ask it for server lists.
-It keeps the lists in memory (ETS) and nothing else: no database, no
-server browser, no upstream masters.
-[gameservers/](gameservers/README.md) runs real Quake 3, Quake 2 and
-QuakeWorld servers against it in Docker.
+Master servers in Elixir/OTP for Quake 3 based games, Quake 2,
+QuakeWorld and Battlefield 1942 (GameSpy). Game servers heartbeat it and
+clients ask it for server lists. It keeps the lists in memory (ETS) and
+nothing else: no database, no server browser, no upstream masters.
+[gameservers/](gameservers/README.md) runs real Quake 3, Quake 2,
+QuakeWorld and Battlefield 1942 servers against it in Docker.
 
 The protocols are described in [docs/quake3.md](docs/quake3.md),
-[docs/quake2.md](docs/quake2.md) and [docs/quakeworld.md](docs/quakeworld.md).
+[docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md)
+and [docs/gamespy.md](docs/gamespy.md).
 
 ## Running
 
@@ -30,7 +31,7 @@ OS and architecture it runs on.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]` |
+| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs` and `gsl` |
 | `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
 | `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
 | `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
@@ -47,6 +48,14 @@ since on the wire they look like Quake 3 (see
 on `::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6.
 Quake 2 and QuakeWorld lists hold only IPv4 addresses, so they listen on
 IPv4.
+
+GameSpy's master is two listeners: `gs` takes heartbeats over UDP and
+`gsl` sends lists over TCP, both from one store. They aren't in the
+default, since Battlefield 1942 heartbeats port 27900, Quake 2's master
+port, and has it compiled in: give them an address of their own, and bind
+the Quake 2 listener to another
+(`q2:203.0.113.1:27900,gs:203.0.113.2:27900,gsl:203.0.113.2:28900`).
+Their lists hold only IPv4 too.
 
 ### Several nodes
 
@@ -87,10 +96,12 @@ Exmaster.Supervisor
 ├── Exmaster.RateLimit        token buckets in a public ETS table
 ├── Exmaster.PG               the pg scope the stores share their lists in
 ├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw,
-│                             and :exmaster_q3_<label> per label
+│                             :exmaster_gs, and :exmaster_q3_<label> per label
 ├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
-    └── Exmaster.Listener     one per socket, running Q3.Master, Q2.Master or QW.Master
+    ├── Exmaster.Listener     one per UDP socket, running Q3.Master, Q2.Master,
+    │                         QW.Master or GS.Master
+    └── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
 ```
 
 - Each socket has a listener process that takes packets one at a time,
@@ -120,7 +131,8 @@ Exmaster.Supervisor
 - A packet that makes a protocol raise is dropped and logged at most once
   a minute, so a packet like that can't restart a listener in a loop.
 - Each protocol has its own module for the wire format (`Exmaster.Q3`,
-  `Exmaster.Q2`, `Exmaster.QW`) and one for the master (`*.Master`). The
+  `Exmaster.Q2`, `Exmaster.QW`, `Exmaster.GS`) and one for the master
+  (`*.Master`). The
   protocols share no code, and each master has its own copy of the code
   that decides when a listed server is asked again; Quake 2 and
   QuakeWorld each have their own table of whom they asked. What is shared
@@ -159,7 +171,20 @@ fixed table of 65,536 slots (`:atomics`), keyed by a salted hash. Forged
 heartbeats from many addresses take slots rather than growing it. A real
 server whose slot gets taken is asked again at its next heartbeat.
 
-### Limits, for all three
+### GameSpy (Battlefield 1942)
+
+A heartbeat, `\heartbeat\<query port>\gamename\bfield1942`, has the
+master send `\info\\secure\<challenge>` to the server's query port.
+The server is listed once a reply from there carries the challenge's
+`\validate\`, gsmsalg under the game's key. The challenges are stateless,
+as Quake 3's: an HMAC of the address, the listener and a 5-second bucket.
+Clients get the list over TCP, as 6-byte entries encrypted with GameSpy's
+enctype 2 when they ask for it, as Battlefield 1942 does. The list
+server takes 64 connections at once, 5 an IP at once then one every 3
+seconds, and gives each 5 seconds to ask. See
+[docs/gamespy.md](docs/gamespy.md).
+
+### Limits, for all of them
 
 - Server list queries: 5 per IP at once, then one every 3 seconds.
   Replies to everyone together: 256 KB a second, bursts of 1 MB. Each
@@ -169,9 +194,9 @@ server whose slot gets taken is asked again at its next heartbeat.
   it: 64 per IP at once, then one a second.
 - A heartbeat from a listed server has it asked again at most once a
   minute. One that comes sooner has it asked when the minute is over.
-- A shutdown (a flatline tag, `shutdown`, `C`) can be forged, so the
-  server is asked, and dropped if it doesn't answer within 10 seconds of
-  that. The check shares the once-a-minute allowance with heartbeats: a
+- A shutdown (a flatline tag, `shutdown`, `C`, `\statechanged\2`) can be
+  forged, so the server is asked, and dropped if it doesn't answer within
+  10 seconds of that. The check shares the once-a-minute allowance with heartbeats: a
   second query right after one could fall to the server's own flood
   protection, and the server would be dropped. A shutdown inside the
   minute has the check wait for its end. A server that restarts sends a

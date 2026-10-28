@@ -19,6 +19,7 @@ defmodule Exmaster.Application do
   @impl true
   def start(_type, _args) do
     Exmaster.Q3.Challenge.init_key()
+    Exmaster.GS.Master.init_key()
     listeners = Exmaster.Config.listeners!(Application.fetch_env!(:exmaster, :listen))
     peers = Application.fetch_env!(:exmaster, :peers)
 
@@ -28,7 +29,7 @@ defmodule Exmaster.Application do
       start:
         {Supervisor, :start_link,
          [
-           Enum.map(listeners, &{Exmaster.Listener, &1}),
+           Enum.map(listeners, &listener/1),
            [strategy: :one_for_one, name: Exmaster.Listeners, max_restarts: 10, max_seconds: 10]
          ]}
     }
@@ -48,5 +49,12 @@ defmodule Exmaster.Application do
         [listeners_sup]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Exmaster.Supervisor)
+  end
+
+  # GameSpy lists go out over TCP; everything else is a UDP master.
+  defp listener(opts) do
+    if opts[:protocol] == Exmaster.GS.ListServer,
+      do: {Exmaster.GS.ListServer, opts},
+      else: {Exmaster.Listener, opts}
   end
 end
