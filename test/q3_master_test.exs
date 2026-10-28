@@ -198,14 +198,53 @@ defmodule Exmaster.Q3.MasterTest do
 
     # Listed by both, each listener with its own state.
     p = register(plain, state, @server, "QuakeArena-1", @info)
-    l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info)
+    l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info, 2_000)
 
-    # A minute on, a heartbeat to each has it asked by each.
+    # A minute on, a heartbeat to each has it asked by each, 2 seconds
+    # apart: they share an address, and its flood protection counts by IP.
     assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} =
-             heartbeat(plain, p, @server, "QuakeArena-1", 61_000)
+             heartbeat(plain, p, @server, "QuakeArena-1", 62_000)
 
-    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} =
-             heartbeat(labelled, l, @server, "QuakeArena-1", 61_000)
+    assert {[], l} = heartbeat(labelled, l, @server, "QuakeArena-1", 62_000)
+    assert {[], l} = Master.tick(labelled, 63_999, l)
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} = Master.tick(labelled, 64_000, l)
+  end
+
+  test "a check from one master waits for another's poll to be 2 seconds old", %{
+    ctx: plain,
+    state: state
+  } do
+    start_supervised!({Store, name: :exmaster_q3_test_et})
+    labelled = %{plain | label: "et", store: :exmaster_q3_test_et, id: {{0, 0, 0, 0}, 27_955}}
+    info = %{@info | "protocol" => "84"} |> Map.put("gamename", "et")
+    p = register(plain, state, @server, "EnemyTerritory-1", info)
+    l = register(labelled, Master.init(0), @server, "EnemyTerritory-1", info, 2_000)
+
+    {[_], _} = heartbeat(plain, p, @server, "EnemyTerritory-1", 62_000)
+    # A forged flatline to the other a moment later: its check goes out
+    # when the poll is 2 seconds old, and the server, which answers it,
+    # stays listed.
+    {[], l} = heartbeat(labelled, l, @server, "ETFlatline-1", 62_100)
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], l} = Master.tick(labelled, 64_000, l)
+    l = answer(labelled, l, @server, c, info, 64_200)
+    {[], _} = Master.tick(labelled, 75_000, l)
+    assert Store.lookup(:exmaster_q3_test_et, @server, 75_000)
+  end
+
+  test "a first query waits for another master's poll to be 2 seconds old", %{
+    ctx: plain,
+    state: state
+  } do
+    start_supervised!({Store, name: :exmaster_q3_test_UrT})
+    labelled = %{plain | label: "UrT", store: :exmaster_q3_test_UrT, id: {{0, 0, 0, 0}, 27_960}}
+    p = register(plain, state, @server, "QuakeArena-1", @info)
+
+    {[_], _} = heartbeat(plain, p, @server, "QuakeArena-1", 61_000)
+    # Not listed by the other yet: its first query waits too.
+    {[], l} = heartbeat(labelled, Master.init(0), @server, "QuakeArena-1", 61_010)
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, @server}], l} = Master.tick(labelled, 63_000, l)
+    answer(labelled, l, @server, c, @info, 63_100)
+    assert Store.lookup(:exmaster_q3_test_UrT, @server, 63_100)
   end
 
   test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
@@ -230,14 +269,16 @@ defmodule Exmaster.Q3.MasterTest do
   end
 
   test "rejects bad infoResponses", %{ctx: ctx, state: state} do
-    for {key, value} <- [{"protocol", "x"}, {"sv_maxclients", "0"}, {"gametype", "a b"}] do
-      register(ctx, state, @server, "QuakeArena-1", Map.put(@info, key, value))
+    # Each 2 seconds after the last, as queries to one address go.
+    for {{key, value}, i} <-
+          Enum.with_index([{"protocol", "x"}, {"sv_maxclients", "0"}, {"gametype", "a b"}]) do
+      register(ctx, state, @server, "QuakeArena-1", Map.put(@info, key, value), i * 2_000)
     end
 
-    assert Store.all(:exmaster_q3, 0) == []
+    assert Store.all(:exmaster_q3, 6_000) == []
     # Call of Duty leaves clients out when nobody's on.
-    register(ctx, state, @server, "QuakeArena-1", Map.delete(@info, "clients"))
-    assert Store.lookup(:exmaster_q3, @server, 0).clients == 0
+    register(ctx, state, @server, "QuakeArena-1", Map.delete(@info, "clients"), 6_000)
+    assert Store.lookup(:exmaster_q3, @server, 6_000).clients == 0
   end
 
   test "servers expire unless they answer again", %{ctx: ctx, state: state} do
@@ -442,15 +483,18 @@ defmodule Exmaster.Q3.MasterTest do
       for {c, protocol} <- [{ctx, "57"}, {other, "60"}] do
         challenges =
           for addr <- servers do
+            # 2 seconds apart, as queries to one address go.
+            now = if c == ctx, do: 0, else: 2_000
+
             {[{"\xFF\xFF\xFF\xFFgetinfo " <> ch, _}], _} =
-              heartbeat(c, Master.init(0), addr, "Wolfenstein-1", 0)
+              heartbeat(c, Master.init(0), addr, "Wolfenstein-1", now)
 
             {addr, ch}
           end
 
         fn ->
           for {addr, ch} <- challenges,
-              do: answer(c, Master.init(0), addr, ch, %{info | "protocol" => protocol}, 0)
+              do: answer(c, Master.init(0), addr, ch, %{info | "protocol" => protocol}, 2_000)
         end
       end
 

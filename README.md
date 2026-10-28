@@ -194,15 +194,21 @@ seconds, gives each 5 seconds to ask and closes it after 10. See
   it: 64 per IP at once, then one a second.
 - A heartbeat from a listed server has it asked again at most once a
   minute. One that comes sooner has it asked when the minute is over.
+- Quake 3 queries to one address, from the Quake 3 master and the
+  labelled ones together, go at least 2 seconds apart, first queries
+  included: a server listed by two of them shares their address, and its
+  flood protection counts queries by IP. One that would come sooner is
+  sent when the 2 seconds are over.
 - A shutdown (a flatline tag, `shutdown`, `C`, `\statechanged\2`) can be
-  forged, so the server is asked, and dropped if it doesn't answer within
-  10 seconds of that. The check shares the once-a-minute allowance with heartbeats: a
-  second query right after one could fall to the server's own flood
-  protection, and the server would be dropped. A shutdown inside the
-  minute has the check wait for its end. A server that restarts sends a
-  shutdown and, a moment later, a heartbeat from its new instance; that
-  heartbeat is put off, since the check spent the minute, and is answered
-  as one from an unlisted address when the check drops the old entry.
+  forged, so the server is asked, and dropped if it doesn't answer
+  within 10 seconds of that. The check shares the once-a-minute
+  allowance with heartbeats: a second query right after one could fall
+  to the server's own flood protection, and the server would be dropped.
+  A shutdown inside the minute has the check wait for its end. A server
+  that restarts sends a shutdown and, a moment later, a heartbeat from
+  its new instance; that heartbeat is put off, since the check spent the
+  minute, and is answered as one from an unlisted address when the check
+  drops the old entry.
 
 ## What it doesn't do
 

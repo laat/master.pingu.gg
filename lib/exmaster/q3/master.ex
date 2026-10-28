@@ -40,7 +40,7 @@ defmodule Exmaster.Q3.Master do
   def store, do: :exmaster_q3
 
   @impl true
-  def init(_now), do: %{deferred: %{}, checks: %{}}
+  def init(_now), do: %{deferred: %{}, checks: %{}, probes: %{}}
 
   @impl true
   def handle_packet(data, from, ctx, now, state) do
@@ -65,12 +65,21 @@ defmodule Exmaster.Q3.Master do
 
     # Restarted servers, no longer listed, are asked as for any heartbeat
     # from an address that isn't.
-    probes =
-      for {{ip, _} = addr, entry} <- restarted,
-          RateLimit.take({:q3, :heartbeat, ip}, @heartbeat_limit, 1, now) == :ok,
-          do: getinfo(addr, entry.class, ctx, now)
+    {restarts, state} =
+      Enum.flat_map_reduce(restarted, state, fn {{ip, _} = addr, entry}, state ->
+        if RateLimit.take({:q3, :heartbeat, ip}, @heartbeat_limit, 1, now) == :ok,
+          do: probe(state, addr, entry.class, ctx, now),
+          else: {[], state}
+      end)
 
-    {polls ++ probes, state}
+    {due, waiting} = Map.split_with(state.probes, fn {_, {at, _}} -> at <= now end)
+
+    {probes, state} =
+      Enum.flat_map_reduce(due, %{state | probes: waiting}, fn {addr, {_, class}}, state ->
+        probe(state, addr, class, ctx, now)
+      end)
+
+    {polls ++ restarts ++ probes, state}
   end
 
   # Classes, by the index the challenge carries. :known goes with the game
@@ -106,7 +115,7 @@ defmodule Exmaster.Q3.Master do
         end
 
       RateLimit.take({:q3, :heartbeat, elem(from, 0)}, @heartbeat_limit, 1, now) == :ok ->
-        {[getinfo(from, classify(tag), ctx, now)], state}
+        probe(state, from, classify(tag), ctx, now)
 
       true ->
         {[], state}
@@ -326,17 +335,45 @@ defmodule Exmaster.Q3.Master do
   # the minute has the check wait for its end. The query a server answered
   # to register counts as its first.
   #
+  # The minute is each store's: a server listed by the Quake 3 master and
+  # a labelled one is asked by each, on its own heartbeats. But they
+  # usually share an address, and the server's flood protection counts
+  # queries by IP, so any query to a server, from any of the stores and a
+  # first one too, waits for 2 seconds after the last (@spacing); one that
+  # would come sooner is sent when they are over.
+  #
   # state.deferred is addr => {due, :poll | :check}, state.checks addr =>
-  # when the check's query went out. Both are this listener's: a server is
-  # only asked through the listener it is listed through.
+  # when the check's query went out, state.probes addr => {due, class}
+  # for first queries waiting for the spacing. All are this listener's: a
+  # server is only asked through the listener it is listed through.
 
   @gap {1, 60_000, 1}
+  @spacing {1, 2_000, 1}
   @check_window 10_000
+
+  # The first query to a server that isn't listed: now, or once the
+  # spacing allows.
+  defp probe(state, addr, class, ctx, now) do
+    case RateLimit.take(spacing_key(addr), @spacing, 1, now) do
+      :ok -> {[getinfo(addr, class, ctx, now)], state}
+      {:error, wait} -> {[], %{state | probes: Map.put(state.probes, addr, {now + wait, class})}}
+    end
+  end
+
+  # A query needs both. The minute is looked at first and taken last, so a
+  # query that one of them refuses spends neither: the spacing taken for a
+  # query the minute then refused would put off the next by 2 seconds, and
+  # the minute taken for one the spacing then refused would cost a minute.
+  defp take_poll(ctx, addr, now) do
+    with :ok <- RateLimit.check(poll_key(ctx, addr), @gap, 1, now),
+         :ok <- RateLimit.take(spacing_key(addr), @spacing, 1, now),
+         do: RateLimit.take(poll_key(ctx, addr), @gap, 1, now)
+  end
 
   # A heartbeat from a listed server: {:now, state} to ask it, or
   # {:later, state}. A check waiting for the minute becomes this query.
   defp poll_for_heartbeat(state, ctx, addr, now) do
-    case RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
+    case take_poll(ctx, addr, now) do
       :ok -> {:now, sent(state, addr, now, :poll)}
       {:error, wait} -> {:later, defer(state, addr, now + wait, :poll)}
     end
@@ -349,7 +386,7 @@ defmodule Exmaster.Q3.Master do
     if Map.has_key?(state.checks, addr) do
       {:skip, state}
     else
-      case RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
+      case take_poll(ctx, addr, now) do
         :ok -> {:now, sent(state, addr, now, :check)}
         {:error, wait} -> {:later, defer(state, addr, now + wait, :check)}
       end
@@ -360,10 +397,8 @@ defmodule Exmaster.Q3.Master do
   # an earlier listing of the address was still running.
   defp registered(ctx, addr, now), do: RateLimit.drain(poll_key(ctx, addr), @gap, now)
 
-  # A server can be listed by the Quake 3 master and a labelled one, each
-  # with a store of its own, and each asks it on its own heartbeats: one
-  # mustn't spend the other's minute.
   defp poll_key(ctx, addr), do: {:q3, :poll, ctx.store, addr}
+  defp spacing_key(addr), do: {:q3, :spacing, addr}
 
   # A query of kind went out to addr: whatever was waiting is done, and a
   # check, this one or one that was waiting, starts its 10 seconds.
@@ -414,7 +449,7 @@ defmodule Exmaster.Q3.Master do
     {addrs, state} =
       Enum.reduce(due, {[], state}, fn {addr, {_, kind}}, {addrs, state} ->
         with %{via: ^via} <- Store.lookup(ctx.store, addr, now),
-             :ok <- RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
+             :ok <- take_poll(ctx, addr, now) do
           checks = if kind == :check, do: Map.put_new(state.checks, addr, now), else: state.checks
           {[addr | addrs], %{state | checks: checks}}
         else
