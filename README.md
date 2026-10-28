@@ -53,10 +53,12 @@ IPv4.
 
 GameSpy's master is two listeners: `gs` takes heartbeats over UDP and
 `gsl` sends lists over TCP, both from one store. They aren't in the
-default, since Battlefield 1942 and MOH:AA heartbeat port 27900, Quake
-2's master port, and have it compiled in: give them an address of their
-own, and bind the Quake 2 listener to another
-(`q2:203.0.113.1:27900,gs:203.0.113.2:27900,gsl:203.0.113.2:28900`).
+default. Battlefield 1942 and MOH:AA heartbeat port 27900, Quake 2's
+master port, and have it compiled in, so `q2` and `gs` on the same
+address and port share one socket (`q2:27900,gs:27900,gsl:28900`):
+packets that start with `\` are GameSpy's, the rest Quake 2's, and the
+All-Seeing Eye's heartbeat, `\hb\`, which BF1942 sends to the same
+port, is dropped (see [Sharing port 27900](docs/gamespy.md#sharing-port-27900)).
 Their lists hold only IPv4 too.
 
 ### Several nodes
@@ -102,7 +104,8 @@ Exmaster.Supervisor
 ├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
     ├── Exmaster.Listener     one per UDP socket, running Q3.Master, Q2.Master,
-    │                         QW.Master or GS.Master
+    │                         QW.Master, GS.Master, or Q2GS for Quake 2 and
+    │                         GameSpy on one socket
     └── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
 ```
 

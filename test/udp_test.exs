@@ -9,7 +9,7 @@ defmodule Exmaster.UDPTest do
   @localhost {127, 0, 0, 1}
 
   setup do
-    for s <- [:exmaster_q3, :exmaster_q2, :exmaster_qw], do: Store.clear(s)
+    for s <- [:exmaster_q3, :exmaster_q2, :exmaster_qw, :exmaster_gs], do: Store.clear(s)
     RateLimit.clear()
     :ok
   end
@@ -106,6 +106,54 @@ defmodule Exmaster.UDPTest do
 
     :ok = :gen_udp.send(client, @localhost, port, "query\n")
     assert decode_ipv4_lists([recv(client)], "servers ") == [{@localhost, port_of(server)}]
+  end
+
+  test "Quake 2 and GameSpy on one socket, and the All-Seeing Eye's heartbeat dropped" do
+    port = listen(Exmaster.Q2GS)
+    q2 = socket()
+    gs = socket()
+    client = socket()
+
+    :ok = :gen_udp.send(gs, @localhost, port, "\\hb\\14690\\bf1942")
+
+    :ok =
+      :gen_udp.send(gs, @localhost, port, "\\heartbeat\\#{port_of(gs)}\\gamename\\bfield1942")
+
+    # Nothing for the All-Seeing Eye's: the first reply is the challenge.
+    "\\info\\\\secure\\" <> challenge = recv(gs)
+
+    :ok =
+      :gen_udp.send(
+        gs,
+        @localhost,
+        port,
+        "\\hostname\\x\\maxplayers\\16\\numplayers\\0" <>
+          "\\validate\\#{Exmaster.GS.validate(challenge, "HpWx9z")}\\final\\\\queryid\\2.1"
+      )
+
+    :ok = :gen_udp.send(q2, @localhost, port, "\xFF\xFF\xFF\xFFheartbeat\n\\hostname\\x\n")
+    assert recv(q2) == "\xFF\xFF\xFF\xFFstatus\n"
+
+    :ok =
+      :gen_udp.send(q2, @localhost, port, "\xFF\xFF\xFF\xFFprint\n\\hostname\\x\\maxclients\\8\n")
+
+    wait_until(fn ->
+      Store.all(:exmaster_q2, Exmaster.now()) != [] and
+        Store.all(:exmaster_gs, Exmaster.now()) != []
+    end)
+
+    # Each master lists only its own.
+    assert [{{@localhost, q2_port}, _}] = Store.all(:exmaster_q2, Exmaster.now())
+    assert q2_port == port_of(q2)
+
+    assert [{{@localhost, gs_port}, %{game: "bfield1942"}}] =
+             Store.all(:exmaster_gs, Exmaster.now())
+
+    assert gs_port == port_of(gs)
+
+    :ok = :gen_udp.send(client, @localhost, port, "query\n")
+    assert decode_ipv4_lists([recv(client)], "servers ") == [{@localhost, port_of(q2)}]
+    assert {:error, :timeout} = :gen_udp.recv(gs, 0, 100)
   end
 
   test "QuakeWorld: heartbeat, status, reply, c" do

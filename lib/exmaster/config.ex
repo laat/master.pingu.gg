@@ -12,6 +12,9 @@ defmodule Exmaster.Config do
   shared with the listeners that have the same label. See "Listeners" in
   `docs/quake3.md`. Quake 2, QuakeWorld and GameSpy lists only hold IPv4,
   so their host can't be IPv6.
+
+  A `q2` and a `gs` listener on the same address and port share one
+  socket, `Exmaster.Q2GS`: both games heartbeat UDP 27900.
   """
 
   @protocols %{
@@ -28,6 +31,7 @@ defmodule Exmaster.Config do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.map(&listener!/1)
+    |> share()
   end
 
   defp listener!(item) do
@@ -49,6 +53,34 @@ defmodule Exmaster.Config do
       _ ->
         raise ArgumentError, "listen #{inspect(item)}: want q3|q2|qw:[host:]port[=label]"
     end
+  end
+
+  # A q2 and a gs listener on one address and port become one listener,
+  # where the first of them was.
+  @shared [Exmaster.GS.Master, Exmaster.Q2.Master]
+
+  defp share(listeners) do
+    pairs =
+      listeners
+      |> Enum.filter(&(&1[:protocol] in @shared and &1[:port] != 0))
+      |> Enum.group_by(&{&1[:ip], &1[:port]}, & &1[:protocol])
+      |> Map.filter(fn {_, protocols} -> Enum.sort(protocols) == @shared end)
+
+    listeners
+    |> Enum.map(fn l ->
+      if l[:protocol] in @shared and Map.has_key?(pairs, {l[:ip], l[:port]}),
+        do: [
+          protocol: Exmaster.Q2GS,
+          ip: l[:ip],
+          port: l[:port],
+          label: nil,
+          store: Exmaster.Q2GS.store()
+        ],
+        else: l
+    end)
+    |> Enum.uniq_by(
+      &if(&1[:protocol] == Exmaster.Q2GS, do: {&1[:ip], &1[:port]}, else: make_ref())
+    )
   end
 
   @doc """
