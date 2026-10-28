@@ -185,6 +185,29 @@ defmodule Exmaster.Q3.MasterTest do
     assert list(ctx, state, "getservers", "84") == [@server]
   end
 
+  test "a server two masters list is asked by each, once a minute", %{ctx: plain, state: state} do
+    start_supervised!({Store, name: :exmaster_q3_test_UrbanTerror})
+
+    labelled = %{
+      plain
+      | label: "UrbanTerror",
+        store: :exmaster_q3_test_UrbanTerror,
+        id: {{0, 0, 0, 0}, 27_960},
+        port: 27_960
+    }
+
+    # Listed by both, each listener with its own state.
+    p = register(plain, state, @server, "QuakeArena-1", @info)
+    l = register(labelled, Master.init(0), @server, "QuakeArena-1", @info)
+
+    # A minute on, a heartbeat to each has it asked by each.
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} =
+             heartbeat(plain, p, @server, "QuakeArena-1", 61_000)
+
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, @server}], _} =
+             heartbeat(labelled, l, @server, "QuakeArena-1", 61_000)
+  end
+
   test "Smokin' Guns' flatline is a flatline", %{ctx: ctx, state: state} do
     # No gamename: the tag alone names the game.
     state = register(ctx, state, @server, "smokinguns", @info)

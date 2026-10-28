@@ -278,7 +278,9 @@ label: `EXMASTER_LISTEN=q3:27950,q3:27960=UrbanTerror,q3:27961=SmokinGuns`.
 A labelled listener is a game's own master. Its servers are listed in a
 store of their own, under the label, shared by the listeners with the
 same label and kept apart from the Quake 3 list, and every query to it is
-answered from that store, whatever game it names.
+answered from that store, whatever game it names. A server that
+heartbeats the Quake 3 port and a labelled one is listed by each, and
+each asks it again on its own heartbeats, at most once a minute.
 
 That is how games that look like Quake 3 on the wire are kept apart.
 Urban Terror and Smokin' Guns are standalone games with masters of their

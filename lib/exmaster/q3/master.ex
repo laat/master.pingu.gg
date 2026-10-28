@@ -99,7 +99,7 @@ defmodule Exmaster.Q3.Master do
         # A heartbeat with another tag doesn't reclassify a listed server,
         # since heartbeats can be forged. The new tag applies once the
         # server has expired.
-        case entry.via == ctx.id && poll_for_heartbeat(state, from, now) do
+        case entry.via == ctx.id && poll_for_heartbeat(state, ctx, from, now) do
           {:now, state} -> {[getinfo(from, entry.class, ctx, now)], state}
           {:later, state} -> {[], state}
           false -> {[], state}
@@ -115,7 +115,7 @@ defmodule Exmaster.Q3.Master do
 
   defp flatline(from, ctx, now, state) do
     with %{via: via} = entry when via == ctx.id <- Store.lookup(ctx.store, from, now),
-         {:now, state} <- poll_for_shutdown(state, from, now) do
+         {:now, state} <- poll_for_shutdown(state, ctx, from, now) do
       {[getinfo(from, entry.class, ctx, now)], state}
     else
       {:later, state} -> {[], state}
@@ -136,7 +136,7 @@ defmodule Exmaster.Q3.Master do
            Challenge.check(from, Map.get(info, "challenge"), ctx.id, now, ctx.challenge_ttl),
          class when class != nil <- Enum.at(classes(), index),
          {:ok, :added, entry} <- register(info, class, from, ctx, now) do
-      registered(from, now)
+      registered(ctx, from, now)
 
       Logger.info(
         "q3: #{Addr.to_string(from)} verified, game=#{entry.game} protocol=#{entry.protocol}"
@@ -335,8 +335,8 @@ defmodule Exmaster.Q3.Master do
 
   # A heartbeat from a listed server: {:now, state} to ask it, or
   # {:later, state}. A check waiting for the minute becomes this query.
-  defp poll_for_heartbeat(state, addr, now) do
-    case RateLimit.take({:q3, :poll, addr}, @gap, 1, now) do
+  defp poll_for_heartbeat(state, ctx, addr, now) do
+    case RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
       :ok -> {:now, sent(state, addr, now, :poll)}
       {:error, wait} -> {:later, defer(state, addr, now + wait, :poll)}
     end
@@ -345,11 +345,11 @@ defmodule Exmaster.Q3.Master do
   # A shutdown from a listed server: {:now, state} to ask it, {:later,
   # state} if it will be asked at the end of the minute, or {:skip, state}
   # if a check is under way.
-  defp poll_for_shutdown(state, addr, now) do
+  defp poll_for_shutdown(state, ctx, addr, now) do
     if Map.has_key?(state.checks, addr) do
       {:skip, state}
     else
-      case RateLimit.take({:q3, :poll, addr}, @gap, 1, now) do
+      case RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
         :ok -> {:now, sent(state, addr, now, :check)}
         {:error, wait} -> {:later, defer(state, addr, now + wait, :check)}
       end
@@ -358,7 +358,12 @@ defmodule Exmaster.Q3.Master do
 
   # A server was just registered: its minute starts now, even if one from
   # an earlier listing of the address was still running.
-  defp registered(addr, now), do: RateLimit.drain({:q3, :poll, addr}, @gap, now)
+  defp registered(ctx, addr, now), do: RateLimit.drain(poll_key(ctx, addr), @gap, now)
+
+  # A server can be listed by the Quake 3 master and a labelled one, each
+  # with a store of its own, and each asks it on its own heartbeats: one
+  # mustn't spend the other's minute.
+  defp poll_key(ctx, addr), do: {:q3, :poll, ctx.store, addr}
 
   # A query of kind went out to addr: whatever was waiting is done, and a
   # check, this one or one that was waiting, starts its 10 seconds.
@@ -409,7 +414,7 @@ defmodule Exmaster.Q3.Master do
     {addrs, state} =
       Enum.reduce(due, {[], state}, fn {addr, {_, kind}}, {addrs, state} ->
         with %{via: ^via} <- Store.lookup(ctx.store, addr, now),
-             :ok <- RateLimit.take({:q3, :poll, addr}, @gap, 1, now) do
+             :ok <- RateLimit.take(poll_key(ctx, addr), @gap, 1, now) do
           checks = if kind == :check, do: Map.put_new(state.checks, addr, now), else: state.checks
           {[addr | addrs], %{state | checks: checks}}
         else
