@@ -198,7 +198,9 @@ seconds, gives each 5 seconds to ask and closes it after 10. See
   labelled ones together, go at least 2 seconds apart, first queries
   included: a server listed by two of them shares their address, and its
   flood protection counts queries by IP. One that would come sooner is
-  sent when the 2 seconds are over.
+  sent when the 2 seconds are over. A master sends a server it doesn't
+  list a first query at most every 10 seconds, so forged heartbeats to
+  one master can't keep those 2 seconds from the master that lists it.
 - A shutdown (a flatline tag, `shutdown`, `C`, `\statechanged\2`) can be
   forged, so the server is asked, and dropped if it doesn't answer
   within 10 seconds of that. The check shares the once-a-minute

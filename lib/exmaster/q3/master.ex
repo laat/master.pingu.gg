@@ -68,15 +68,19 @@ defmodule Exmaster.Q3.Master do
     {restarts, state} =
       Enum.flat_map_reduce(restarted, state, fn {{ip, _} = addr, entry}, state ->
         if RateLimit.take({:q3, :heartbeat, ip}, @heartbeat_limit, 1, now) == :ok,
-          do: probe(state, addr, entry.class, ctx, now),
+          do: first_query(state, addr, entry.class, ctx, now),
           else: {[], state}
       end)
 
+    # A server listed since its first query was put off is asked as a
+    # listed one, on its heartbeats.
     {due, waiting} = Map.split_with(state.probes, fn {_, {at, _}} -> at <= now end)
 
     {probes, state} =
       Enum.flat_map_reduce(due, %{state | probes: waiting}, fn {addr, {_, class}}, state ->
-        probe(state, addr, class, ctx, now)
+        if Store.lookup(ctx.store, addr, now),
+          do: {[], state},
+          else: probe(state, addr, class, ctx, now)
       end)
 
     {polls ++ restarts ++ probes, state}
@@ -115,7 +119,7 @@ defmodule Exmaster.Q3.Master do
         end
 
       RateLimit.take({:q3, :heartbeat, elem(from, 0)}, @heartbeat_limit, 1, now) == :ok ->
-        probe(state, from, classify(tag), ctx, now)
+        first_query(state, from, classify(tag), ctx, now)
 
       true ->
         {[], state}
@@ -340,7 +344,11 @@ defmodule Exmaster.Q3.Master do
   # usually share an address, and the server's flood protection counts
   # queries by IP, so any query to a server, from any of the stores and a
   # first one too, waits for 2 seconds after the last (@spacing); one that
-  # would come sooner is sent when they are over.
+  # would come sooner is sent when they are over. A store sends a server it
+  # doesn't list a first query at most every 10 seconds (@first_gap):
+  # forged heartbeats to a master that won't list a server would otherwise
+  # keep one always waiting, and take the spacing from the master that
+  # does.
   #
   # state.deferred is addr => {due, :poll | :check}, state.checks addr =>
   # when the check's query went out, state.probes addr => {due, class}
@@ -349,7 +357,15 @@ defmodule Exmaster.Q3.Master do
 
   @gap {1, 60_000, 1}
   @spacing {1, 2_000, 1}
+  @first_gap {1, 10_000, 1}
   @check_window 10_000
+
+  defp first_query(state, addr, class, ctx, now) do
+    case RateLimit.take({:q3, :first, ctx.store, addr}, @first_gap, 1, now) do
+      :ok -> probe(state, addr, class, ctx, now)
+      {:error, _} -> {[], state}
+    end
+  end
 
   # The first query to a server that isn't listed: now, or once the
   # spacing allows.
