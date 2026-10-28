@@ -302,7 +302,8 @@ def parse_list(b):
 
 
 for game, from_game, key in [(b"bfvietnam", b"bfvietnam", b"h2P9dJ"),
-                             (b"bfvietnam", b"gslive", b"Xn221z")]:
+                             (b"bfvietnam", b"gslive", b"Xn221z"),
+                             (b"ut3pc", b"ut3pc", b"nT2Mtz")]:
     servers = server_browsing(game, b"\\hostname\\gamever\\numplayers\\maxplayers\\mapname",
                               from_game, key)
     print("sb %-36s %s" % ("%s, asked as %s" % (game.decode(), from_game.decode()), servers))

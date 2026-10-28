@@ -2,8 +2,8 @@ defmodule Exmaster.QR2 do
   @moduledoc """
   The wire format of GameSpy's Query and Reporting 2 (QR2), as game
   servers speak it to the master over UDP 27900. Battlefield Vietnam is
-  one. Clients get the lists over TCP from `Exmaster.SB`. See
-  `docs/gamespy.md`.
+  one, and Unreal Tournament 3. Clients get the lists over TCP from
+  `Exmaster.SB`. See `docs/qr2.md`.
 
   A server's packets start with a type byte and its instance key, 4 random
   bytes it picks as it starts; the master's start with `FE FD`, the type
@@ -27,9 +27,11 @@ defmodule Exmaster.QR2 do
 
   # The games the master lists, by the gamename their servers heartbeat,
   # with their secret key and the query port they use by default. The keys
-  # are in aluigi's gslist.cfg; Battlefield Vietnam's servers answer
-  # challenges with this one.
-  @games %{"bfvietnam" => {"h2P9dJ", 23_000}}
+  # are in aluigi's gslist.cfg, and the games' servers answer challenges
+  # with them: Unreal Tournament 3's, ut3pc, with the key gslist.cfg gives
+  # its Automatch (ut3pcam), not the one it gives ut3pc. UT3's servers log
+  # into GameSpy before they heartbeat (`Exmaster.GP`).
+  @games %{"bfvietnam" => {"h2P9dJ", 23_000}, "ut3pc" => {"nT2Mtz", 6_500}}
 
   # Games whose clients ask for lists but that list no servers of their
   # own: GameSpy Arcade (gslive), which gslist asks as.

@@ -2,8 +2,8 @@
 
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2,
 QuakeWorld, Battlefield 1942, Medal of Honor: Allied Assault and Unreal
-Tournament (GameSpy), Battlefield Vietnam (GameSpy QR2), and Unreal
-Tournament 2004. Game servers heartbeat it and clients ask it for server
+Tournament (GameSpy), Battlefield Vietnam and Unreal Tournament 3 (GameSpy
+QR2), and Unreal Tournament 2004. Game servers heartbeat it and clients ask it for server
 lists. It keeps the lists in memory (ETS) and nothing else: no
 database, no server browser, no upstream masters.
 [gameservers/](gameservers/README.md) runs real game servers against it
@@ -34,11 +34,12 @@ OS and architecture it runs on.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb` and `ue2` |
+| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb`, `gp` and `ue2` |
 | `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
 | `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
 | `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
 | `EXMASTER_MAX_UNKNOWN_TAG` | `512` | Quake 3 servers with a heartbeat tag that's neither built in nor `DarkPlaces` |
+| `EXMASTER_GP_PASSWORD` | `pingu` | the one password every name logs in to `gp` with; public (see [Unreal Tournament 3](docs/qr2.md#unreal-tournament-3)) |
 | `EXMASTER_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
 
 A protocol can listen on several ports. A Quake 3 listener can have a
@@ -69,6 +70,9 @@ in the games (`qr2:27900,sb:28910`). Battlefield Vietnam heartbeats port
 27900 as well, so `qr2` shares a socket with `q2` and `gs` on the same
 address and port, any two or all three: QR2's packets start with a byte
 under 10 and its instance key. IPv4 only, as GameSpy's first protocol.
+Unreal Tournament 3's servers log into GameSpy before they heartbeat:
+`gp` is that login, on TCP 29900 in the game (`gp:29900`), for any name
+with one public password.
 
 UT2004's master, `ue2`, is one TCP listener, port 28902 in the game's
 ini, for its servers and its clients both (`ue2:28902`). It isn't in the
@@ -123,6 +127,7 @@ Exmaster.Supervisor
     │                         socket
     ├── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
     ├── Exmaster.SB.ListServer  one per TCP socket, with a task per connection
+    ├── Exmaster.GP.Server    one per TCP socket, with a task per connection
     └── Exmaster.UE2.Master   one per TCP socket, with a task per connection
 ```
 
@@ -154,9 +159,11 @@ Exmaster.Supervisor
   a minute, so a packet like that can't restart a listener in a loop.
 - Each protocol has its own module for the wire format (`Exmaster.Q3`,
   `Exmaster.Q2`, `Exmaster.QW`, `Exmaster.GS`, `Exmaster.QR2`,
-  `Exmaster.SB`, `Exmaster.UE2`) and one for the master (`*.Master`).
-  The protocols share no code but GameSpy's challenge response
-  (`Exmaster.GS.validate/2`), which QR2 uses too, and each master has its
+  `Exmaster.SB`, `Exmaster.GP`, `Exmaster.UE2`) and one for the master
+  (`*.Master`, `*.ListServer`, `*.Server`).
+  The protocols share no code but GameSpy's challenge response and
+  `\key\value` parsing (`Exmaster.GS.validate/2`, `parse/1`), which QR2
+  and GameSpy's login use too, and each master has its
   own copy of the code that decides when a listed server is asked again;
   Quake 2 and QuakeWorld each have their own table of whom they asked.
   What is shared has no protocol in it: sockets, stores, rate limits, and
@@ -210,7 +217,7 @@ list server takes 64 connections at once, 5 an IP at once then one every
 3 seconds, gives each 5 seconds to ask and closes it after 10. See
 [docs/gamespy.md](docs/gamespy.md).
 
-### GameSpy QR2 (Battlefield Vietnam)
+### GameSpy QR2 (Battlefield Vietnam, Unreal Tournament 3)
 
 A QR2 heartbeat carries everything the server says about itself, and the
 server's instance key, 4 random bytes it picks as it starts. The master
@@ -223,7 +230,10 @@ key comes, so a forger who doesn't know the key can't get anything
 listed. Listed servers are asked again at most once a minute, with their
 own key, and an exit is checked like any other. Clients get the list over
 TCP, encrypted under the asking game's key with GameSpy's GOACrypt, with
-the fields they ask for. See [docs/qr2.md](docs/qr2.md).
+the fields they ask for. Unreal Tournament 3's servers log into GameSpy
+first: `gp` takes any name with the public password, `pingu` by default,
+since the game checks that the login service knows its password and
+exmaster keeps no accounts. See [docs/qr2.md](docs/qr2.md).
 
 ### Unreal Tournament 2004
 

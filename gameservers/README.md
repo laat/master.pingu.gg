@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs eighteen game servers from LinuxGSM's images
+`docker-compose.yml` runs nineteen game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -24,6 +24,7 @@ which install the original server binaries and game data:
 | `sof2` | Raven's sof2ded 1.03 | 20100 | 127.0.0.1:20110, labelled `SoF2` |
 | `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.1:27900, lists TCP 28900 |
 | `ut2k4` | Epic's ucc-bin 3369 | 7757, queries 7758 | TCP 127.0.0.1:28902 |
+| `ut3` | Epic's ut3-bin, patch 5 | 7787, queries 6500 | 127.0.0.1:27900 (QR2), login TCP 29900, lists TCP 28910 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy and QR2 masters share 127.0.0.1:27900 with Quake 2's, on one
@@ -33,7 +34,7 @@ port.
 
 ```
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.1:27900,gsl:127.0.0.1:28900,\
-qr2:127.0.0.1:27900,sb:127.0.0.1:28910,\
+qr2:127.0.0.1:27900,sb:127.0.0.1:28910,gp:127.0.0.1:29900,\
 q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2,\
 ue2:127.0.0.1:28902 \
   elixir --sname exmaster -S mix run --no-halt
@@ -48,6 +49,7 @@ quakestat -gsm,bfield1942 127.0.0.1:28900
 quakestat -gsm,mohaa 127.0.0.1:28900
 quakestat -gsm,ut 127.0.0.1:28900
 quakestat -gs2 127.0.0.1:23100      # Battlefield Vietnam itself; query.py asks its master
+quakestat -ut3s 127.0.0.1:6500      # and UT3
 quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
@@ -58,7 +60,7 @@ Server files are kept in `data/` (ignored by git): about 1.3 GB for the
 Quake servers, 170 MB for Battlefield 1942, 250 MB for Battlefield
 Vietnam, 3 GB for MOH:AA, 3.6 GB for
 RTCW, ET, ET: Legacy, Xonotic and Warfork together, 420 MB for Unreal
-Tournament and 5.7 GB for UT2004. The image installs a game only into an
+Tournament, 5.7 GB for UT2004 and 7.3 GB for UT3. The image installs a game only into an
 empty `serverfiles`. q3, q2 and qw mount a config there, and Battlefield
 1942, Battlefield Vietnam, Unreal Tournament and UT2004 read theirs from
 there, so `run.sh` installs those seven first, with only `/data` mounted,
@@ -109,6 +111,15 @@ own from `config/` instead:
   same. Its instance config sets `ip` and `querymode="1"`: LinuxGSM's
   monitor's gamedig query failed at 127.0.0.1, then tried the host's
   public address, and without `ip` it queried the host's LAN address.
+- UT3 comes patched by LinuxGSM's package from GameSpy's hosts to
+  OpenSpy's. `extra_hosts` points its QR2, server browsing and login hosts
+  (`ut3pc.available`, `ut3pc.master`, `ut3pc.ms3`, `gpcm.openspy.net`) at
+  exmaster on 127.0.0.1, and its profile search, CD key, web service and
+  message-of-the-day hosts, STUN servers and Epic's content server at
+  127.0.0.3. Its instance config logs in as `exmaster` with exmaster's
+  public password, `pingu`; without a login it doesn't heartbeat. It binds
+  127.0.0.1 (`-multihome`), on 7787 since UT99 has 7777. LinuxGSM's
+  monitor only checks its process.
 - MOH:AA heartbeats `master.gamespy.com` only; the Reborn patch's
   `mohmaster.2015.com` and GameSpy's `master0` and `master1`, named in its
   config, aren't contacted, and none of them resolve. `extra_hosts` points
@@ -165,7 +176,7 @@ send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758 or port 15567 or port 23100) and not host 127.0.0.1 and not host ::1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758 or port 15567 or port 23100 or port 7787 or port 6500) and not host 127.0.0.1 and not host ::1'
 ```
 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942,
@@ -337,3 +348,25 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   question, then 10 seconds to answer. A new container's instance, with a
   new instance key, was listed again before the old one's check ended.
 - No traffic left loopback from its ports, with `querymode="1"`.
+
+## What it showed for Unreal Tournament 3 (2026-10-28)
+
+- Against stubs for each GameSpy service: an available check, then a
+  login to the login service (`gpcm`) as `exmaster`, and only once that
+  was accepted, a QR2 heartbeat, the response to its challenge, a SOAP
+  `LoginUniqueNick` to the AuthService (which failed, and nothing
+  stopped), QR2 heartbeats every 60 seconds, and keepalives and CD key
+  packets every 20. Answered with a wrong proof, or "no such uniquenick",
+  it hung up, logged in again every 27 seconds, never heartbeat, and never
+  tried to register a profile, with `bHasGameSpyAccount` either way.
+- Its QR2 response matched the key gslist.cfg gives UT3's Automatch,
+  `nT2Mtz`, not the one it gives `ut3pc`.
+- Against exmaster (`gp:127.0.0.1:29900` with the password `pingu`), it
+  logged in, was verified on its next heartbeat, came back in `query.py`'s
+  list asked as `ut3pc`, with the 521 bytes of settings it puts in
+  `mapname`, and qstat (`-ut3s`) queried it at the listed address.
+- After exmaster restarted, it logged in again 24 seconds later,
+  heartbeat at once and was listed. Stopped, it sent nothing, so it stays
+  listed until it expires.
+- No traffic left loopback from its ports. LinuxGSM's monitor only checks
+  its process (LinuxGSM's own setting).

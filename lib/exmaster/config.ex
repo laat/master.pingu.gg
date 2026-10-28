@@ -3,12 +3,13 @@ defmodule Exmaster.Config do
   Parses the `listen` setting (`EXMASTER_LISTEN`): comma-separated
   `protocol:[host:]port[=label]`, where protocol is `q3`, `q2`, `qw`, `gs`
   (GameSpy heartbeats, UDP), `gsl` (GameSpy lists, TCP), `qr2` (GameSpy
-  QR2 heartbeats, UDP), `sb` (GameSpy QR2 lists, TCP) or `ue2` (Unreal
-  Tournament 2004, TCP).
+  QR2 heartbeats, UDP), `sb` (GameSpy QR2 lists, TCP), `gp` (GameSpy's
+  login, TCP, for Unreal Tournament 3) or `ue2` (Unreal Tournament 2004,
+  TCP).
 
       q3:27950,q2:27900,qw:27000,q3:27960=UrbanTerror,q3:27961=SmokinGuns
       q3:[::1]:27950,q2:127.0.0.1:27900,gs:127.0.0.2:27900,gsl:127.0.0.2:28900
-      qr2:27900,sb:28910,ue2:28902
+      qr2:27900,sb:28910,gp:29900,ue2:28902
 
   A label is for Quake 3 listeners only. A labelled listener is a master of
   its own, for one game: it lists its servers in a store of its own,
@@ -29,6 +30,7 @@ defmodule Exmaster.Config do
     "gsl" => Exmaster.GS.ListServer,
     "qr2" => Exmaster.QR2.Master,
     "sb" => Exmaster.SB.ListServer,
+    "gp" => Exmaster.GP.Server,
     "ue2" => Exmaster.UE2.Master
   }
 

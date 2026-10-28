@@ -193,3 +193,28 @@ services:
     volumes:
       - ./data/ut2k4:/data
       - ./config/ut2k4server.cfg:/data/config-lgsm/ut2k4server/ut2k4server.cfg:ro
+  ut3:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:ut3
+    container_name: exmaster-ut3
+    # LinuxGSM's package patches UT3 to OpenSpy's hosts. QR2, server
+    # browsing and GameSpy's login to exmaster on 127.0.0.1; GameSpy's
+    # profile search, CD key and web services, STUN and Epic's content
+    # server to 127.0.0.3, where nothing listens: the server does without.
+    extra_hosts:
+      - ut3pc.available.openspy.net:127.0.0.1
+      - ut3pc.master.openspy.net:127.0.0.1
+      - ut3pc.ms3.openspy.net:127.0.0.1
+      - gpcm.openspy.net:127.0.0.1
+      - gpsp.openspy.net:127.0.0.3
+      - key.openspy.net:127.0.0.3
+      - ut3pc.auth.pubsvs.openspy.net:127.0.0.3
+      - ut3pc.comp.pubsvs.openspy.net:127.0.0.3
+      - ut3pc.sake.openspy.net:127.0.0.3
+      - motd.openspy.net:127.0.0.3
+      - gamecontent.unrealtournament3.com:127.0.0.3
+      - stunserver.org:127.0.0.3
+      - stun.xten.com:127.0.0.3
+    volumes:
+      - ./data/ut3:/data
+      - ./config/ut3server.cfg:/data/config-lgsm/ut3server/ut3server.cfg:ro

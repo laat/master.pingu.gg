@@ -9,7 +9,9 @@ config :exmaster,
   max_per_ip: 32,
   max_unknown_tag: 512,
   server_ttl: :timer.minutes(15),
-  challenge_ttl: :timer.seconds(5)
+  challenge_ttl: :timer.seconds(5),
+  # The password every name logs in to GameSpy's login (gp) with. Public.
+  gp_password: "pingu"
 
 if config_env() == :test do
   config :exmaster, listen: ""

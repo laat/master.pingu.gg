@@ -41,6 +41,11 @@ defmodule Exmaster.QR2Test do
     assert QR2.key("bfvietnam") == "h2P9dJ"
     assert QR2.default_port("bfvietnam") == 23_000
     assert QR2.client_key("gslive") == "Xn221z"
+    assert {QR2.key("ut3pc"), QR2.default_port("ut3pc")} == {"nT2Mtz", 6_500}
+    # A UT3 server's response to exmaster's challenge, captured.
+    assert Exmaster.GS.validate("jMijzR007F0000011964", "nT2Mtz") ==
+             "MzGpm6F0mqyVLT1hC5MpDmt4RvEA"
+
     assert QR2.key("gslive") == nil
     assert QR2.client_key("nosuchgame") == nil
   end

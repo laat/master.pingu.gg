@@ -21,6 +21,10 @@ for {var, key} <- [
   config :exmaster, [{key, String.to_integer(value)}]
 end
 
+if password = System.get_env("EXMASTER_GP_PASSWORD") do
+  config :exmaster, gp_password: password
+end
+
 if level = System.get_env("EXMASTER_LOG_LEVEL") do
   config :logger, level: String.to_existing_atom(level)
 end
