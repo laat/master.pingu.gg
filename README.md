@@ -200,9 +200,10 @@ seconds, gives each 5 seconds to ask and closes it after 10. See
   One that would come sooner is sent when the 2 seconds are over. A
   first query, to a server a master doesn't list, goes out at once and
   doesn't count, so forged heartbeats can't keep listed servers from
-  being asked; a DarkPlaces server may drop one that comes within a
-  second of another master's query, and is asked again at its next
-  heartbeat.
+  being asked. A DarkPlaces server may drop another master's query that
+  comes within a second of it: a dropped poll is made again at its next
+  heartbeat, but a dropped shutdown check delists it until then, which
+  forged packets can arrange for a DarkPlaces server two masters ask.
 - A shutdown (a flatline tag, `shutdown`, `C`, `\statechanged\2`) can be
   forged, so the server is asked, and dropped if it doesn't answer
   within 10 seconds of that. The check shares the once-a-minute

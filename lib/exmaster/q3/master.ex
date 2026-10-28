@@ -338,8 +338,10 @@ defmodule Exmaster.Q3.Master do
   # spends nothing of the spacing: anyone can forge a heartbeat, and first
   # queries that took the spacing could keep it from the listed servers.
   # A DarkPlaces server one master asks for the first time while another
-  # polls it may drop one of the two; it is asked again at its next
-  # heartbeat.
+  # asks it again may drop the second query: a poll it drops is made at
+  # its next heartbeat, but a shutdown check it drops has it delisted
+  # until then, and a forged heartbeat to the one master and a forged
+  # flatline to the other can arrange that.
   #
   # state.deferred is addr => {due, :poll | :check}, state.checks addr =>
   # when the check's query went out. Both are this listener's: a server is
