@@ -33,14 +33,14 @@ defmodule Exmaster.GS.Master do
 
   # The games the master lists, in a fixed order: a challenge starts with
   # its game's place in it, so new ones go last.
-  @games ["bfield1942", "mohaa"]
+  @games ["bfield1942", "mohaa", "ut"]
 
-  # Challenges: [A-Za-z0-9], the game's character then 15 from an HMAC.
-  # Real servers took up to 65, gsseckey's limit.
+  # Challenges: [A-Za-z0-9], the game's character then the rest from an
+  # HMAC, 16 in all. BF1942 and MOH:AA took up to 65, gsseckey's limit;
+  # Unreal Tournament answers the first 6 only, so its are 6: about 30
+  # bits, for a challenge that lives 10 seconds.
   @alphabet Enum.concat([?A..?Z, ?a..?z, ?0..?9]) |> List.to_string()
-  @mac_length 15
-  # gsmsalg's response to a challenge of 16: base64 of 16 bytes padded to 18.
-  @response_length 24
+  @challenge_length %{"ut" => 6}
 
   @impl true
   def name, do: "GameSpy"
@@ -140,9 +140,9 @@ defmodule Exmaster.GS.Master do
   def challenge(addr, game, via, bucket, key \\ key()) do
     index = Enum.find_index(@games, &(&1 == game))
     data = [Addr.to_binary(addr), Addr.to_binary(via), <<bucket::signed-64, index>>]
-    <<mac::binary-size(@mac_length), _::binary>> = :crypto.mac(:hmac, :sha256, key, data)
-    # A byte a character, rem 62: 89 bits, slightly uneven, for a challenge
-    # that lives 10 seconds.
+    mac_length = challenge_length(game) - 1
+    <<mac::binary-size(^mac_length), _::binary>> = :crypto.mac(:hmac, :sha256, key, data)
+    # A byte a character, rem 62: 89 bits for 15, slightly uneven.
     for <<b <- mac>>,
       into: <<:binary.at(@alphabet, index)>>,
       do: <<:binary.at(@alphabet, rem(b, 62))>>
@@ -150,20 +150,23 @@ defmodule Exmaster.GS.Master do
 
   defp key, do: :persistent_term.get({__MODULE__, :key})
 
+  defp challenge_length(game), do: Map.get(@challenge_length, game, 16)
+
+  # gsmsalg's response: base64 of the challenge padded to a multiple of 3.
+  defp response_length(game), do: div(challenge_length(game) + 2, 3) * 4
+
   # The game whose challenge, sent from via to addr in this time bucket or
   # the one before, the response answers, or nil. Any packet with a
   # \\validate\\ gets here, from any address, so the length goes first.
-  defp answered(_addr, response, _via, _now, _ttl) when byte_size(response) != @response_length,
-    do: nil
-
   defp answered(addr, response, via, now, ttl) do
     bucket = Integer.floor_div(now, ttl)
 
     Enum.find(@games, fn game ->
-      Enum.any?([bucket, bucket - 1], fn b ->
-        expected = GS.validate(challenge(addr, game, via, b), GS.key(game))
-        :crypto.hash_equals(response, expected)
-      end)
+      byte_size(response) == response_length(game) and
+        Enum.any?([bucket, bucket - 1], fn b ->
+          expected = GS.validate(challenge(addr, game, via, b), GS.key(game))
+          :crypto.hash_equals(response, expected)
+        end)
     end)
   end
 
@@ -188,7 +191,8 @@ defmodule Exmaster.GS.Master do
     entry = %{
       game: if(existing, do: existing.game, else: game),
       hostname: info |> Map.get("hostname", "") |> binary_slice(0, @hostname_length),
-      version: info |> Map.get("version", "") |> binary_slice(0, @hostname_length),
+      # BF1942 says version, UT gamever.
+      version: (info["version"] || info["gamever"] || "") |> binary_slice(0, @hostname_length),
       clients: GS.int(info["numplayers"]) || 0,
       max_clients: GS.int(info["maxplayers"]) || 0,
       via: if(existing, do: existing.via, else: ctx.id),

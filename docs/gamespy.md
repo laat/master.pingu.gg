@@ -1,8 +1,8 @@
-# GameSpy master protocol: Battlefield 1942 and Medal of Honor
+# GameSpy master protocol: Battlefield 1942, Medal of Honor and Unreal Tournament
 
 This is GameSpy's first master protocol, from before Query and Reporting 2,
-as Battlefield 1942 and Medal of Honor: Allied Assault speak it, and how
-exmaster speaks it: `Exmaster.GS`
+as Battlefield 1942, Medal of Honor: Allied Assault and Unreal Tournament
+speak it, and how exmaster speaks it: `Exmaster.GS`
 (wire format), `Exmaster.GS.Master` (heartbeats, UDP) and
 `Exmaster.GS.ListServer` (lists, TCP). Quake 3 is in [quake3.md](quake3.md).
 The sources used here are:
@@ -22,6 +22,9 @@ The sources used here are:
   the Reborn patch RC3.5.1, as LinuxGSM installs it: its strings and its
   traffic against exmaster, on 2026-10-28. See
   [Medal of Honor](#medal-of-honor-allied-assault).
+- The Unreal Tournament Linux server, OldUnreal's 469f, as LinuxGSM
+  installs it: its traffic against exmaster, on 2026-10-28. See
+  [Unreal Tournament](#unreal-tournament).
 
 ## Where Battlefield 1942 servers go
 
@@ -116,12 +119,13 @@ wrong length nothing.
 
 1. **Heartbeat from an address that isn't listed.** The master sends
    `\info\\secure\<challenge>` to the heartbeat's IP and query port, and
-   stores nothing. A challenge is 16 characters of `[A-Za-z0-9]`: the
-   game's, then 15 of an HMAC of the address, the listener and a 5-second
-   time bucket. It is good in its bucket and the next, 5 to 10 seconds.
+   stores nothing. A challenge is 16 characters of `[A-Za-z0-9]` (6 for
+   Unreal Tournament): the game's, then an HMAC of the address, the
+   listener and a 5-second time bucket. It is good in its bucket and the
+   next, 5 to 10 seconds.
 2. **Reply with a valid `\validate\`, from that address.** The server is
    listed for 15 minutes, with `hostname`, `numplayers`, `maxplayers` and
-   `version` from the reply. Only another valid reply moves that on.
+   `version` (Unreal Tournament's `gamever`) from the reply. Only another valid reply moves that on.
 3. **Heartbeat from a listed server.** It is asked again, at most once a
    minute; a heartbeat inside the minute has it asked when the minute is
    over. Only the listener it is listed through asks it.
@@ -207,4 +211,40 @@ listed 135 servers on 2026-10-28.
   (`\gamename\%s\gamever\%s\location\0\validate\%s\final\\queryid\1.1\`,
   then `\list\cmp\gamename\mohaa\final\`), so they get it
   unencrypted.
+
+## Unreal Tournament
+
+Unreal Tournament speaks it as `ut`, with the key `Z5Nfb0` (aluigi's
+gslist.cfg; the server's `\validate\` matches it). 333networks listed
+852 servers on 2026-10-28.
+
+| Port | Use |
+|---|---|
+| UDP 7777 | server: the game |
+| UDP 7778 | server: GameSpy queries |
+| UDP 7779, 7780, … | server: one a master, for its heartbeats |
+
+- **The masters** are `ServerActors` lines in the server's ini, under
+  `[Engine.GameEngine]`, one a master:
+  `ServerActors=IpServer.UdpServerUplink MasterServerAddress=… MasterServerPort=27900`.
+  They have to come after `ServerActors=IpServer.UdpServerQuery`.
+- **Heartbeats**, `\heartbeat\7778\gamename\ut`, come from the
+  uplink's own port and name the query port, every 55 seconds
+  (`UpdateMinutes=1`). Nothing is sent when the server stops, so it
+  stays listed until it expires.
+- **The challenge.** The server answers only the first 6 characters of a
+  `\secure\` challenge: its `\validate\` is 8 characters, the first 8 of
+  the response to the whole. So exmaster sends it 6: the game's and 5 of
+  HMAC, about 30 bits, for a challenge that lives 10 seconds.
+- **The reply** to `\info\\secure\<challenge>` is one packet:
+  `\hostname\…\hostport\7777\maptitle\…\mapname\DM-Deck16][\gametype\DeathMatchPlus\numplayers\0\maxplayers\10\gamemode\openplaying\gamever\469\minnetver\432\worldlog\true\wantworldlog\true\validate\…\queryid\1.1\final\`.
+- **Clients** (UBrowser's `UBrowserGSpyFact`) ask for the text list:
+  `\gamename\ut\location\0\validate\…\final\`, then
+  `\list\\gamename\ut\final\`, and get `\ip\a.b.c.d:7778` a
+  server, then `\final\`.
+- **OldUnreal 469** upgrades an ini whose `[FirstRun] FirstRun` is older
+  than 469, setting it to 469 and adding its default masters
+  (`master.oldunreal.com`, `master.333networks.com`,
+  `master.hypercoop.tk`, `master.qtracker.com`) to the uplinks, from the
+  next start. An ini with `FirstRun=469` is left alone.
 
