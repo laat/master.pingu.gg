@@ -152,4 +152,20 @@ defmodule Exmaster.ClusterTest do
     true = Node.connect(@peer)
     wait_until(fn -> addresses(node()) == ["198.51.100.2:27960"] end)
   end
+
+  test "stores join again when the pg scope restarts" do
+    pg = :erpc.call(@peer, Process, :whereis, [Exmaster.PG])
+    true = :erpc.call(@peer, Process, :exit, [pg, :kill])
+
+    wait_until(fn ->
+      members = :erpc.call(@peer, :pg, :get_members, [Exmaster.PG, {Store, @store}])
+      new_pg = :erpc.call(@peer, Process, :whereis, [Exmaster.PG])
+      new_pg not in [nil, pg] and length(members) == 2
+    end)
+
+    a = {{198, 51, 100, 1}, 27960}
+    pnow = peer_now()
+    :ok = :erpc.call(@peer, Store, :put, [@store, a, entry(pnow), pnow, nil])
+    wait_until(fn -> addresses(node()) == ["198.51.100.1:27960"] end)
+  end
 end

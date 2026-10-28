@@ -27,11 +27,14 @@ defmodule Exmaster.Store do
   processes arrive in order, so a list and the changes after it can't be
   swapped. A copy that stops being refreshed expires like any entry, so
   servers a node listed before it went away stay listed until then, and a
-  split heals by itself.
+  split heals by itself. If the `pg` scope restarts, which forgets its
+  groups, each store joins again and sends its list.
 
   `Exmaster.now/0` is a monotonic clock, which differs from node to node,
-  so each message carries the sender's time and the receiver moves the
-  entry's times onto its own clock.
+  so entries travel with their times on the OS clock, which NTP keeps the
+  same on every host. Each node converts with its own offset between the
+  two, so time an entry spends in transit or in a mailbox counts against
+  it.
   """
   use GenServer
   require Logger
@@ -40,6 +43,10 @@ defmodule Exmaster.Store do
 
   @sweep_interval 5_000
   @scope Exmaster.PG
+  # Match patterns binding address, expiry, game and entry, for the rows of
+  # this node's servers and of the others'.
+  @local {:"$1", :"$2", :"$3", :"$4"}
+  @replica {{:"$1", :_}, :"$2", :"$3", :"$4"}
 
   @doc "The `pg` scope the stores' groups are in."
   def scope, do: @scope
@@ -61,14 +68,17 @@ defmodule Exmaster.Store do
   @doc """
   `{addr, entry}` for every server that hasn't expired, of one of games if
   given, listed by this node or another. A server two nodes list is there
-  once, as the one that heard from it last has it.
+  once, as the copy that expires last has it: the one from the node that
+  heard from it last. That copy decides its game too.
   """
   def all(store, now, games \\ nil) do
-    local = select(store, {:"$1", :"$2", :"$3", :"$4"}, now, games)
+    local = select(store, @local, now, games)
 
-    case select(replicas(store), {{:"$1", :_}, :"$2", :"$3", :"$4"}, now, games) do
-      [] -> local
-      replicas -> newest(local ++ replicas)
+    if :ets.info(replicas(store), :size) == 0 do
+      local
+    else
+      entries = newest(local ++ select(replicas(store), @replica, now, games))
+      if games, do: drop_superseded(entries, store, now, games), else: entries
     end
   end
 
@@ -84,16 +94,37 @@ defmodule Exmaster.Store do
   defp newest(entries) do
     entries
     |> Enum.reduce(%{}, fn {addr, e}, acc ->
-      Map.update(acc, addr, e, &if(&1.seen >= e.seen, do: &1, else: e))
+      Map.update(acc, addr, e, &if(&1.expires >= e.expires, do: &1, else: e))
     end)
     |> Map.to_list()
+  end
+
+  # Drops the servers that have a newer copy of another game.
+  defp drop_superseded(entries, store, now, games) do
+    guards = [{:>, :"$2", now}, {:not, game_match(games)}]
+
+    others =
+      for {table, pattern} <- [{store, @local}, {replicas(store), @replica}],
+          {addr, expires} <- :ets.select(table, [{pattern, guards, [{{:"$1", :"$2"}}]}]),
+          reduce: %{} do
+        acc -> Map.update(acc, addr, expires, &max(&1, expires))
+      end
+
+    Enum.reject(entries, fn {addr, e} ->
+      case others do
+        %{^addr => expires} -> expires > e.expires
+        _ -> false
+      end
+    end)
   end
 
   defp replicas(store), do: :"#{store}_replicas"
 
   defp game_guard(nil), do: []
-  defp game_guard([game]), do: [{:==, :"$3", game}]
-  defp game_guard(games), do: [List.to_tuple([:orelse | Enum.map(games, &{:==, :"$3", &1})])]
+  defp game_guard(games), do: [game_match(games)]
+
+  defp game_match([game]), do: {:==, :"$3", game}
+  defp game_match(games), do: List.to_tuple([:orelse | Enum.map(games, &{:==, :"$3", &1})])
 
   @doc """
   Adds or replaces the server at addr, if its entry is still expected (nil
@@ -149,13 +180,20 @@ defmodule Exmaster.Store do
       unknown: 0
     }
 
+    Process.send_after(self(), :sweep, @sweep_interval)
+    # The list is empty, but it clears what the others still have from this
+    # store's last run.
+    {:ok, join_group(state)}
+  end
+
+  # Joins the group, watches it and the scope, and sends this store's list
+  # to the others.
+  defp join_group(state) do
+    scope = Process.monitor(Process.whereis(@scope))
     :ok = :pg.join(@scope, state.group, self())
     {ref, members} = :pg.monitor(@scope, state.group)
-    # Empty, but it clears what the others still have from this store's
-    # last run.
     send_list(state, others(members))
-    Process.send_after(self(), :sweep, @sweep_interval)
-    {:ok, Map.put(state, :monitor, ref)}
+    Map.merge(state, %{monitor: ref, scope: scope})
   end
 
   @impl true
@@ -231,6 +269,22 @@ defmodule Exmaster.Store do
     {:noreply, sweep_expired(state, Exmaster.now())}
   end
 
+  # The scope restarted and forgot the group. The others may have missed
+  # changes since, so the list goes out again on joining.
+  def handle_info({:DOWN, ref, :process, _, _}, %{scope: ref} = state) do
+    send(self(), :join_group)
+    {:noreply, %{state | monitor: nil, scope: nil}}
+  end
+
+  def handle_info(:join_group, state) do
+    if Process.whereis(@scope) do
+      {:noreply, join_group(state)}
+    else
+      Process.send_after(self(), :join_group, 100)
+      {:noreply, state}
+    end
+  end
+
   def handle_info({ref, :join, _group, pids}, %{monitor: ref} = state) do
     send_list(state, others(pids))
     {:noreply, state}
@@ -240,8 +294,8 @@ defmodule Exmaster.Store do
   # stay listed until they expire or it sends its list again.
   def handle_info({ref, :leave, _group, _pids}, %{monitor: ref} = state), do: {:noreply, state}
 
-  def handle_info({:replica, from, sent, msg}, state) do
-    shift = Exmaster.now() - sent
+  def handle_info({:replica, from, msg}, state) do
+    shift = -os_offset()
 
     case msg do
       {:put, addr, entry} ->
@@ -261,10 +315,17 @@ defmodule Exmaster.Store do
   defp others(pids), do: Enum.reject(pids, &(node(&1) == node()))
 
   defp replicate(state, msg) do
-    case others(:pg.get_members(@scope, state.group)) do
+    case others(members(state)) do
       [] -> :ok
       pids -> send_all(pids, msg)
     end
+  end
+
+  # Nobody while the scope restarts; the list goes out when it is back.
+  defp members(state) do
+    :pg.get_members(@scope, state.group)
+  rescue
+    ArgumentError -> []
   end
 
   defp send_list(_state, []), do: :ok
@@ -273,13 +334,25 @@ defmodule Exmaster.Store do
     do:
       send_all(
         pids,
-        {:list, select(state.table, {:"$1", :"$2", :"$3", :"$4"}, Exmaster.now(), nil)}
+        {:list, select(state.table, @local, Exmaster.now(), nil)}
       )
 
   defp send_all(pids, msg) do
-    msg = {:replica, node(), Exmaster.now(), msg}
+    d = os_offset()
+
+    msg =
+      case msg do
+        {:put, addr, entry} -> {:put, addr, shift(entry, d)}
+        {:list, entries} -> {:list, for({addr, e} <- entries, do: {addr, shift(e, d)})}
+        msg -> msg
+      end
+
+    msg = {:replica, node(), msg}
     Enum.each(pids, &send(&1, msg))
   end
+
+  # Adding it moves a time from Exmaster.now/0 to the OS clock.
+  defp os_offset, do: System.os_time(:millisecond) - Exmaster.now()
 
   defp insert_replica(state, from, addr, entry, shift) do
     entry = shift(entry, shift)
