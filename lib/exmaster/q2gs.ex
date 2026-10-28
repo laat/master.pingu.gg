@@ -15,11 +15,15 @@ defmodule Exmaster.Q2GS do
   | `\\` | `Exmaster.GS.Master`: heartbeats and the replies to `\\secure\\` |
   | anything else | `Exmaster.Q2.Master`: out-of-band packets and `query` |
 
-  Each master keeps its own state and store; ticks run both.
+  Each master keeps its own state and store. A tick runs both, each on its
+  own: if one raises, its state stays as it was and the other's tick still
+  counts, as if each had a socket of its own. A packet goes to one of them
+  only, so the listener's own rescue does for packets.
   """
   @behaviour Exmaster.Protocol
 
-  alias Exmaster.{GS, Q2}
+  alias Exmaster.{GS, Q2, RateLimit}
+  require Logger
 
   @impl true
   def name, do: "Quake 2 and GameSpy"
@@ -48,9 +52,28 @@ defmodule Exmaster.Q2GS do
 
   @impl true
   def tick(ctx, now, state) do
-    {q2_sends, q2} = Q2.Master.tick(ctx, now, state.q2)
-    {gs_sends, gs} = GS.Master.tick(gs_ctx(ctx), now, state.gs)
+    {q2_sends, q2} = isolated(Q2.Master, ctx, now, state.q2)
+    {gs_sends, gs} = isolated(GS.Master, gs_ctx(ctx), now, state.gs)
     {q2_sends ++ gs_sends, %{state | q2: q2, gs: gs}}
+  end
+
+  # One master's tick; if it raises, nothing it would have sent and its
+  # old state, logged at most once a minute per master.
+  defp isolated(master, ctx, now, pstate) do
+    master.tick(ctx, now, pstate)
+  rescue
+    e -> failed(master, ctx, now, pstate, Exception.format(:error, e, __STACKTRACE__))
+  catch
+    kind, reason ->
+      failed(master, ctx, now, pstate, Exception.format(kind, reason, __STACKTRACE__))
+  end
+
+  defp failed(master, ctx, now, pstate, error) do
+    if RateLimit.take({:crash_log, ctx.id, master}, {1, 60_000, 1}, 1, now) == :ok do
+      Logger.error("#{master.name()}: tick failed:\n#{error}")
+    end
+
+    {[], pstate}
   end
 
   # The listener's ctx carries Quake 2's store; GameSpy lists into its own.
