@@ -7,6 +7,9 @@ server browser, no upstream masters.
 [gameservers/](gameservers/README.md) runs real Quake 3, Quake 2 and
 QuakeWorld servers against it in Docker.
 
+The protocols are described in [docs/quake3.md](docs/quake3.md),
+[docs/quake2.md](docs/quake2.md) and [docs/quakeworld.md](docs/quakeworld.md).
+
 ## Running
 
 Erlang/OTP 28 and Elixir 1.20, pinned in `mise.toml` (`mise install`).
@@ -36,9 +39,10 @@ OS and architecture it runs on.
 A protocol can listen on several ports. A Quake 3 listener can have a
 label, `q3:27900=UrbanTerror`, to mirror a game's own master: servers that
 heartbeat it are listed under the label, and anonymous queries to it ask
-for that game. Quake 3 listens on `::` with IPv4 mapped in, or on IPv4
-alone where there is no IPv6. Quake 2 and QuakeWorld lists hold only IPv4
-addresses, so they listen on IPv4.
+for that game (see [Listeners](docs/quake3.md#listeners)). Quake 3 listens
+on `::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6.
+Quake 2 and QuakeWorld lists hold only IPv4 addresses, so they listen on
+IPv4.
 
 ## How it works
 

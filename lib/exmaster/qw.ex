@@ -1,8 +1,8 @@
 defmodule Exmaster.QW do
   @moduledoc """
   The wire format of the QuakeWorld master protocol (id's GPL Quake
-  source, `QW/client/protocol.h` and `QW/server/sv_main.c`).
-  Commands are one byte.
+  source, `QW/client/protocol.h` and `QW/server/sv_main.c`). See
+  `docs/quakeworld.md`. Commands are one byte.
 
   | Message | Direction | Format |
   |---|---|---|

@@ -1,6 +1,7 @@
 defmodule Exmaster.Q3.Master do
   @moduledoc """
-  The Quake 3 master: dpmaster's protocol.
+  The Quake 3 master: dpmaster's protocol (see
+  `docs/quake3.md`).
 
   Only an `infoResponse` that echoes a valid challenge is trusted. A
   heartbeat from an address that isn't listed gets a `getinfo` with a

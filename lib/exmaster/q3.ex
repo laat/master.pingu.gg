@@ -1,6 +1,7 @@
 defmodule Exmaster.Q3 do
   @moduledoc """
   The wire format of the Quake 3 master protocol, as dpmaster speaks it.
+  See `docs/quake3.md`.
   """
   alias Exmaster.Addr
 

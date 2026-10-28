@@ -13,7 +13,6 @@ which install the original server binaries and game data:
 They use host networking and heartbeat exmaster on 127.0.0.1 only.
 
 ```
-cd exmaster
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000 \
   elixir --sname exmaster -S mix run --no-halt
 
