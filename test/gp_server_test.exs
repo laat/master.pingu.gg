@@ -58,7 +58,7 @@ defmodule Exmaster.GP.ServerTest do
     cc = login(s, challenge, "pingu")
 
     assert {:open, reply} = read_all(s)
-    {[lc2, bdy, blk], ""} = GP.split(reply)
+    [lc2, bdy, blk, ""] = String.split(reply, "\\final\\")
     lc2 = GS.parse(lc2)
     assert lc2["lc"] == "2"
     assert lc2["proof"] == GP.proof(GP.password_hash("pingu"), "exmaster", cc, challenge)
@@ -72,6 +72,40 @@ defmodule Exmaster.GP.ServerTest do
     assert {:open, ""} = read_all(s)
     :ok = :gen_tcp.send(s, "\\logout\\\\sesskey\\1\\final\\")
     assert {:closed, ""} = read_all(s)
+  end
+
+  # 440 KB of keepalives in one go took 6 seconds when each message had
+  # the whole buffer split again.
+  test "many messages at once cost no more than their size" do
+    port = start()
+    s = connect(port)
+    login(s, greeting(s), "pingu")
+    {:open, _} = read_all(s)
+
+    started = Exmaster.now()
+    :ok = :gen_tcp.send(s, String.duplicate("\\ka\\\\final\\", 40_000) <> "\\logout\\\\final\\")
+    assert {:closed, ""} = read_all(s)
+    assert Exmaster.now() - started < 1_500
+  end
+
+  test "a login with an empty uniquenick goes by its user" do
+    port = start()
+    s = connect(port)
+    challenge = greeting(s)
+    cc = "XBZsTAgM9ZAEzCCiMch2Qpdp5PCaGJXd"
+    user = "nick@mail.example"
+    response = GP.response(GP.password_hash("pingu"), user, cc, challenge)
+
+    :ok =
+      :gen_tcp.send(
+        s,
+        "\\login\\\\challenge\\#{cc}\\uniquenick\\\\user\\#{user}\\response\\#{response}\\id\\1\\final\\"
+      )
+
+    assert {:open, reply} = read_all(s)
+    lc2 = GS.parse(hd(String.split(reply, "\\final\\")))
+    assert lc2["uniquenick"] == user
+    assert lc2["profileid"] == Integer.to_string(GP.profile_id(user))
   end
 
   test "other passwords, and logins by token, are refused" do

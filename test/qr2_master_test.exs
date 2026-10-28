@@ -214,6 +214,8 @@ defmodule Exmaster.QR2.MasterTest do
 
     fields = Store.lookup(:exmaster_qr2, @server, 0).fields
     assert fields["mapname"] == settings
+    # Copies, not views into the 5 KB packet.
+    assert :binary.referenced_byte_size(fields["mapname"]) == 521
     assert fields["first"] == binary_part(long, 0, 1_024)
     refute Map.has_key?(fields, "second")
     refute Map.has_key?(fields, "third")

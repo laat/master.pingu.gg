@@ -158,8 +158,10 @@ defmodule Exmaster.QR2.Master do
   defp info(keys) do
     keys
     |> Enum.take(@max_keys)
+    # Copied, so what is kept doesn't hold on to the packet it came in.
     |> Enum.map(fn {k, v} ->
-      {binary_slice(k, 0, @key_bytes), binary_slice(v, 0, @value_bytes)}
+      {:binary.copy(binary_slice(k, 0, @key_bytes)),
+       :binary.copy(binary_slice(v, 0, @value_bytes))}
     end)
     |> Enum.reduce_while({[], 0}, fn {k, v}, {acc, size} ->
       size = size + byte_size(k) + byte_size(v)

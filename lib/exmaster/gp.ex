@@ -25,12 +25,6 @@ defmodule Exmaster.GP do
   @doc "The master's greeting, with its challenge."
   def greeting(challenge), do: "\\lc\\1\\challenge\\#{challenge}\\id\\1\\final\\"
 
-  @doc "The complete messages in buf, without `\\final\\`, and what follows them."
-  def split(buf) do
-    parts = :binary.split(buf, "\\final\\", [:global])
-    {Enum.drop(parts, -1), List.last(parts)}
-  end
-
   @doc """
   The user a login hashes, as the client builds it: its uniquenick, or
   nick@email, after its partner id and `@` unless that is 0 (GameSpy's).

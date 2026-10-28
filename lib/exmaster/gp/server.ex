@@ -188,7 +188,7 @@ defmodule Exmaster.GP.Server do
         :gen_tcp.send(sock, GP.error(260, "The password provided is incorrect.", login["id"]))
 
       true ->
-        name = login["uniquenick"] || login["user"]
+        name = if login["uniquenick"] in [nil, ""], do: login["user"], else: login["uniquenick"]
         id = GP.profile_id(name)
         ticket = for <<b <- :crypto.strong_rand_bytes(22)>>, into: "", do: <<?a + rem(b, 26)>>
         proof = GP.proof(conf.hash, user, client_challenge, challenge)
@@ -214,14 +214,15 @@ defmodule Exmaster.GP.Server do
   # connection closes, idles past the deadline or sends too much without
   # ending a message.
   defp next(sock, buf, deadline) do
-    case GP.split(buf) do
-      {[msg | more], rest} ->
-        {:ok, msg, Enum.map_join(more, &(&1 <> "\\final\\")) <> rest}
+    # Only the first message is split off: the rest stays as it came.
+    case :binary.split(buf, "\\final\\") do
+      [msg, rest] ->
+        {:ok, msg, rest}
 
-      {[], _} when byte_size(buf) > @max_buffer ->
+      [_] when byte_size(buf) > @max_buffer ->
         :error
 
-      {[], _} ->
+      [_] ->
         wait = deadline - Exmaster.now()
 
         with true <- wait > 0,

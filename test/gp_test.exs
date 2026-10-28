@@ -30,12 +30,7 @@ defmodule Exmaster.GPTest do
     assert GP.user(%{"uniquenick" => ""}) == nil
   end
 
-  test "messages, profile ids, replies" do
-    assert GP.split("\\ka\\\\final\\\\status\\1\\final\\\\lo") ==
-             {["\\ka\\", "\\status\\1"], "\\lo"}
-
-    assert GP.split("\\ka\\") == {[], "\\ka\\"}
-
+  test "profile ids and replies" do
     id = GP.profile_id("exmaster")
     assert id == GP.profile_id("ExMaster")
     assert id in 1..2_147_483_648
