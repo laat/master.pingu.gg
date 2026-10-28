@@ -15,8 +15,13 @@ defmodule Exmaster.UE2 do
   # The version the latest UT2004 patch reports, which a server's flags
   # compare with.
   @latest_version 3369
-  @max_rules 64
+  # What a server is filtered by is kept small: each entry is copied to
+  # every list and to the other nodes.
+  @max_rules 32
+  @key_bytes 32
+  @value_bytes 64
   @max_mutators 16
+  @max_filters 32
 
   @doc "A frame with payload."
   def frame(payload), do: [<<IO.iodata_length(payload)::little-32>>, payload]
@@ -165,11 +170,14 @@ defmodule Exmaster.UE2 do
 
   @doc """
   A list query's filters, from after its message byte: a count, then
-  key, value and a comparison each. `{:ok, [{key, value, op}]}` or
-  `:error`. The ops are `:eq`, `:ne`, `:lt`, `:le`, `:gt`, `:ge`; a
-  filter with another one is left out, as UT2004's "disabled" is.
+  key, value and a comparison each. `{:ok, [{key, value, op, number}]}`
+  or `:error`. Key and value are in lower case, the value cut as a
+  server's are and read as a number once. The ops are `:eq`, `:ne`,
+  `:lt`, `:le`, `:gt`, `:ge`; a filter with another one is left out, as
+  UT2004's "disabled" is. More than 32 filters is an error: each is
+  checked against every server.
   """
-  def parse_query(<<n, rest::binary>>), do: filters(rest, n, [])
+  def parse_query(<<n, rest::binary>>) when n <= @max_filters, do: filters(rest, n, [])
   def parse_query(_), do: :error
 
   @ops %{0 => :eq, 1 => :ne, 2 => :lt, 3 => :le, 4 => :gt, 5 => :ge}
@@ -180,8 +188,12 @@ defmodule Exmaster.UE2 do
     with {:ok, k, rest} <- decode_string(rest),
          {:ok, v, <<op, rest::binary>>} <- decode_string(rest) do
       case @ops do
-        %{^op => op} -> filters(rest, n - 1, [{String.downcase(k), v, op} | acc])
-        _ -> filters(rest, n - 1, acc)
+        %{^op => op} ->
+          {text, number} = value(v)
+          filters(rest, n - 1, [{String.downcase(k), text, op, number} | acc])
+
+        _ ->
+          filters(rest, n - 1, acc)
       end
     else
       _ -> :error
@@ -189,13 +201,19 @@ defmodule Exmaster.UE2 do
   end
 
   @doc """
-  The values a server is filtered by, keyed in lower case: its rules,
-  and those UT2004's browser asks for, as OpenSpy's master derives them.
+  The values a server is filtered by, keyed in lower case: its first 32
+  rules, and those UT2004's browser asks for, as OpenSpy's master derives
+  them. Each is `{text, number}`: the text in lower case, cut to 64 bytes,
+  and the number it starts with, read once.
   """
   def filter_values(hb) do
-    rules = for {k, v} <- Enum.take(hb.rules, @max_rules), into: %{}, do: {String.downcase(k), v}
+    rules =
+      for {k, v} <- Enum.take(hb.rules, @max_rules),
+          into: %{},
+          do: {k |> cut(@key_bytes) |> String.downcase(), v}
 
-    Map.merge(rules, %{
+    rules
+    |> Map.merge(%{
       "hostname" => hb.hostname,
       "mapname" => hb.map,
       "gametype" => hb.gametype,
@@ -212,33 +230,50 @@ defmodule Exmaster.UE2 do
       "stats" => Map.get(rules, "gamestats", "False"),
       "password" => Map.get(rules, "gamepassword", "False")
     })
+    |> Map.new(fn {k, v} -> {k, value(v)} end)
   end
 
-  @doc "The server's mutators, in lower case."
+  defp value(v) do
+    text = v |> cut(@value_bytes) |> String.downcase()
+    {text, int(text)}
+  end
+
+  @doc "The server's first 16 mutators, in lower case, cut to 64 bytes."
   def mutators(hb) do
-    for({k, v} <- hb.rules, String.downcase(k) == "mutator", do: String.downcase(v))
+    for({k, v} <- hb.rules, String.downcase(k) == "mutator", do: v)
     |> Enum.take(@max_mutators)
+    |> Enum.map(&(&1 |> cut(@value_bytes) |> String.downcase()))
+  end
+
+  @doc "s, cut to at most max bytes where a UTF-8 character starts."
+  def cut(s, max) when byte_size(s) <= max, do: s
+
+  def cut(s, max) do
+    case :unicode.characters_to_binary(binary_part(s, 0, max)) do
+      {:incomplete, s, _} -> s
+      s -> s
+    end
   end
 
   @doc """
-  The flags the browser shows icons by: password, stats, the latest
-  version, non-dedicated, InstaGib, standard (always, as on OpenSpy's
-  master), UT Classic.
+  The flags the browser shows icons by, from a server's filter values
+  and mutators: password, stats, the latest version, non-dedicated,
+  InstaGib, standard (always, as on OpenSpy's master), UT Classic.
   """
   def flags(values, mutators) do
+    text = fn k -> with {t, _} <- values[k], do: t end
+
     [
-      {true?(values["gamepassword"]), 0},
-      {true?(values["gamestats"]), 1},
-      {values["serverversion"] == Integer.to_string(@latest_version), 2},
-      {String.downcase(values["servermode"] || "") == "non-dedicated", 3},
+      {text.("gamepassword") == "true", 0},
+      {text.("gamestats") == "true", 1},
+      {text.("serverversion") == Integer.to_string(@latest_version), 2},
+      {text.("servermode") == "non-dedicated", 3},
       {"mutinstagib" in mutators, 4},
       {true, 5},
       {"mututclassic" in mutators, 6}
     ]
     |> Enum.reduce(0, fn {set, bit}, acc -> if set, do: acc ||| 1 <<< bit, else: acc end)
   end
-
-  defp true?(v), do: is_binary(v) and String.downcase(v) == "true"
 
   @doc """
   Whether a server matches every filter. As on OpenSpy's master, a key
@@ -249,19 +284,14 @@ defmodule Exmaster.UE2 do
   """
   def matches?(entry, filters), do: Enum.all?(filters, &passes?(entry, &1))
 
-  defp passes?(entry, {"mutator", v, op}),
-    do: holds?(if(String.downcase(v) in entry.mutators, do: 0, else: 1), op)
+  defp passes?(entry, {"mutator", v, op, _}),
+    do: holds?(if(v in entry.mutators, do: 0, else: 1), op)
 
-  defp passes?(entry, {k, v, op}) do
+  defp passes?(entry, {k, v, op, n}) do
     case entry.filters do
-      %{^k => have} when op in [:eq, :ne] ->
-        holds?(if(String.downcase(have) == String.downcase(v), do: 0, else: 1), op)
-
-      %{^k => have} ->
-        holds?(sign(int(have) - int(v)), op)
-
-      _ ->
-        true
+      %{^k => {text, _}} when op in [:eq, :ne] -> holds?(if(text == v, do: 0, else: 1), op)
+      %{^k => {_, have}} -> holds?(sign(have - n), op)
+      _ -> true
     end
   end
 

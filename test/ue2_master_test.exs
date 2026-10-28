@@ -231,6 +231,122 @@ defmodule Exmaster.UE2.MasterTest do
     assert lookup(7757).hostname == "again"
   end
 
+  test "a late heartbeat from a server's old connection leaves it to the new one" do
+    port = start(gap: 0)
+    old = uplink(port)
+    write(old, heartbeat(7757, hostname: "old"))
+    assert eventually(fn -> lookup(7757) end)
+
+    new = uplink(port)
+    write(new, heartbeat(7757, hostname: "new"))
+    assert eventually(fn -> lookup(7757).hostname == "new" end)
+
+    write(old, heartbeat(7757, hostname: "old, late"))
+    Process.sleep(100)
+    assert lookup(7757).hostname == "new"
+
+    :gen_tcp.close(old)
+    Process.sleep(100)
+    assert lookup(7757).hostname == "new"
+  end
+
+  test "frames that list nothing don't keep a server's connection open" do
+    port = start(idle: 400)
+    s = uplink(port)
+
+    # A heartbeat that doesn't parse and a stats frame, every 100 ms; the
+    # sends fail once the master has closed.
+    for _ <- 1..8 do
+      :gen_tcp.send(s, [UE2.frame(<<1, 0xFF>>), UE2.frame(<<2, 1, 0>>)])
+      Process.sleep(100)
+    end
+
+    assert {:error, reason} = :gen_tcp.recv(s, 0, 100)
+    assert reason in [:closed, :econnreset]
+  end
+
+  test "a connection lasts its lifetime from when it opened, but for a server's past its handshake" do
+    port = start(lifetime: 400, gap: 0)
+    opened = Exmaster.now()
+    s = connect(port)
+    challenge(s)
+    Process.sleep(250)
+    write(s, hello("UT2K4CLIENT") <> <<0::32, 0::32, 0::32, 0>>)
+    assert {:ok, _} = :gen_tcp.recv(s, 18, 1_000)
+    assert :gen_tcp.recv(s, 0, 1_000) == {:error, :closed}
+    assert Exmaster.now() - opened < 600
+
+    u = uplink(port)
+    write(u, heartbeat(7757))
+    Process.sleep(600)
+    assert lookup(7757)
+    write(u, heartbeat(7757, hostname: "still"))
+    assert eventually(fn -> lookup(7757).hostname == "still" end)
+  end
+
+  test "servers have slots of their own, and clients keep theirs" do
+    port = start(max_uplinks: 1, max_others: 2)
+    a = uplink(port)
+
+    # A second server is closed at the end of its handshake, before the
+    # ports.
+    b = connect(port)
+    challenge(b)
+    write(b, hello("UT2K4SERVER") <> <<-1::little-32, 0>>)
+    assert read(b) == <<9, "APPROVED", 0>>
+    write(b, <<0::32, 0::32>>)
+    assert :gen_tcp.recv(b, 0, 1_000) == {:error, :closed}
+
+    # The server's slot isn't a client's: two can still connect, not three.
+    c1 = connect(port)
+    c2 = connect(port)
+    challenge(c1)
+    challenge(c2)
+    c3 = connect(port)
+    assert :gen_tcp.recv(c3, 0, 1_000) == {:error, :closed}
+
+    :gen_tcp.close(c1)
+    :gen_tcp.close(c2)
+    Process.sleep(50)
+    write(a, heartbeat(7757))
+    assert eventually(fn -> lookup(7757) end)
+    assert list(port) == [{@localhost, 7757, 7758, "exmaster test"}]
+  end
+
+  # 4,000 servers with long names come to about 1.2 MB, more than the
+  # reply budget's burst.
+  test "a list larger than the reply budget's burst still goes out" do
+    port = start()
+    now = Exmaster.now()
+    name = String.duplicate("n", 127)
+
+    for i <- 0..3_999 do
+      ip = {198, 51, div(i, 32), rem(i, 32) + 1}
+
+      entry = %{
+        game: "ut2004",
+        query_port: 7758,
+        hostname: name,
+        map: name,
+        gametype: "xDeathMatch",
+        skill: "0",
+        clients: 0,
+        max_clients: 16,
+        flags: 0,
+        filters: %{},
+        mutators: [],
+        via: self(),
+        conn: 0,
+        seen: now,
+        expires: now + 60_000
+      }
+
+      :ok = Store.put(@store, {ip, 7757}, entry, now, nil)
+    end
+
+    assert length(list(port)) == 4_000
+  end
+
   test "frames over 32 KB close the connection; a heartbeat in the hello's place is denied" do
     port = start()
     s = uplink(port)

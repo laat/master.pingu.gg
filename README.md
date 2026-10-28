@@ -203,11 +203,12 @@ A UT2004 server connects over TCP, answers the master's challenge (its
 CD key isn't checked: nothing can check it now), and heartbeats every 60
 seconds on that connection. It is listed at the connection's IP and the
 port its heartbeat names while the connection lasts, and dropped when it
-closes, or when it has sent nothing for 150 seconds. Heartbeats are
+closes, or when no heartbeat has listed it for 150 seconds. Heartbeats are
 stored at most once every 10 seconds. Clients connect, make one request,
 the list with filters by game type, players, mutators and the like or
 the empty message of the day, and are disconnected. The master takes
-4,096 connections, as many an IP as it may list servers and 8 more. See
+4,096 servers' connections and, apart, 256 in their handshake or with a
+client; an IP can have as many as it may list servers and 8 more. See
 [docs/ut2004.md](docs/ut2004.md).
 
 ### Limits, for all of them

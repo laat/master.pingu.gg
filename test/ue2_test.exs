@@ -81,16 +81,16 @@ defmodule Exmaster.UE2Test do
 
     assert Map.take(values, ~w(gametype currentplayers freespace password stats nobots
              weaponstay transloc serverversion nomutators)) == %{
-             "gametype" => "xDeathMatch",
-             "currentplayers" => "0",
-             "freespace" => "1",
-             "password" => "False",
-             "stats" => "False",
-             "nobots" => "true",
-             "weaponstay" => "True",
-             "transloc" => "False",
-             "serverversion" => "3369",
-             "nomutators" => "false"
+             "gametype" => {"xdeathmatch", 0},
+             "currentplayers" => {"0", 0},
+             "freespace" => {"1", 1},
+             "password" => {"false", 0},
+             "stats" => {"false", 0},
+             "nobots" => {"true", 0},
+             "weaponstay" => {"true", 0},
+             "transloc" => {"false", 0},
+             "serverversion" => {"3369", 3369},
+             "nomutators" => {"false", 0}
            }
 
     # The latest version and standard.
@@ -101,9 +101,53 @@ defmodule Exmaster.UE2Test do
   end
 
   test "flags" do
-    values = %{"gamepassword" => "True", "gamestats" => "true", "servermode" => "non-dedicated"}
+    values = %{
+      "gamepassword" => {"true", 0},
+      "gamestats" => {"true", 0},
+      "servermode" => {"non-dedicated", 0}
+    }
+
     assert UE2.flags(values, ["mutinstagib", "mututclassic"]) == 0b1111011
+    assert UE2.flags(Map.put(values, "serverversion", {"3369", 3369}), []) == 0b0101111
     assert UE2.flags(%{}, []) == 0b0100000
+  end
+
+  # A server that sends as much as a frame takes: 64 rules of 480 bytes,
+  # one of them a 32,000-digit number, and long names.
+  test "what a server is filtered by is bounded" do
+    long = String.duplicate("x", 480)
+
+    hb = %{
+      hostname: String.duplicate("h", 4_000),
+      map: long,
+      gametype: long,
+      skill: long,
+      players: 0,
+      max_players: 16,
+      rules:
+        [{"GoalScore", String.duplicate("9", 32_000)}] ++
+          for(i <- 1..63, do: {"Rule#{i}" <> long, long}) ++
+          for(_ <- 1..40, do: {"mutator", "Mut" <> long})
+    }
+
+    values = UE2.filter_values(hb)
+    assert map_size(values) <= 32 + 15
+    assert Enum.all?(values, fn {k, {t, _}} -> byte_size(k) <= 32 and byte_size(t) <= 64 end)
+
+    assert values["goalscore"] ==
+             {String.duplicate("9", 64), String.to_integer(String.duplicate("9", 64))}
+
+    assert :erlang.external_size(values) < 6_000
+
+    mutators = UE2.mutators(hb)
+    assert length(mutators) == 16 and Enum.all?(mutators, &(byte_size(&1) == 64))
+  end
+
+  test "cutting keeps whole characters" do
+    assert UE2.cut("blåbær", 3) == "bl"
+    assert UE2.cut("blåbær", 4) == "blå"
+    assert UE2.cut("€uro", 2) == ""
+    assert UE2.cut("short", 64) == "short"
   end
 
   # As qstat asks, with a gametype and its "not empty", and with a
@@ -116,9 +160,9 @@ defmodule Exmaster.UE2Test do
     assert UE2.parse_query(query) ==
              {:ok,
               [
-                {"gametype", "xDeathMatch", :eq},
-                {"currentplayers", "0", :gt},
-                {"mutator", "MutInstaGib", :gt}
+                {"gametype", "xdeathmatch", :eq, 0},
+                {"currentplayers", "0", :gt, 0},
+                {"mutator", "mutinstagib", :gt, 0}
               ]}
 
     # A comparison it doesn't know is "disabled", left out.
@@ -126,15 +170,44 @@ defmodule Exmaster.UE2Test do
     assert UE2.parse_query(<<0>>) == {:ok, []}
     assert UE2.parse_query(<<2, 2, "x", 0, 2, "y", 0, 0>>) == :error
     assert UE2.parse_query("") == :error
+
+    # At most 32 filters, and values cut as a server's are.
+    one = <<2, "x", 0, 2, "1", 0, 0>>
+    assert {:ok, [_ | _]} = UE2.parse_query(<<32, :binary.copy(one, 32)::binary>>)
+    assert UE2.parse_query(<<33, :binary.copy(one, 33)::binary>>) == :error
+
+    digits = String.duplicate("7", 1_000)
+
+    assert UE2.parse_query(
+             IO.iodata_to_binary([1, UE2.string("goalscore"), UE2.string(digits), 4])
+           ) ==
+             {:ok,
+              [
+                {"goalscore", String.duplicate("7", 64), :gt,
+                 String.to_integer(String.duplicate("7", 64))}
+              ]}
   end
 
   test "filters" do
     entry = %{
-      filters: %{"gametype" => "xDeathMatch", "currentplayers" => "3", "password" => "False"},
+      filters: %{
+        "gametype" => {"xdeathmatch", 0},
+        "currentplayers" => {"3", 3},
+        "password" => {"false", 0}
+      },
       mutators: ["mutinstagib"]
     }
 
-    pass = &UE2.matches?(entry, &1)
+    # Through parse_query, as a client's query comes.
+    pass = fn filters ->
+      query =
+        Enum.map(filters, fn {k, v, op} ->
+          [UE2.string(k), UE2.string(v), Map.fetch!(%{eq: 0, ne: 1, lt: 2, le: 3, gt: 4}, op)]
+        end)
+
+      {:ok, filters} = UE2.parse_query(IO.iodata_to_binary([length(filters), query]))
+      UE2.matches?(entry, filters)
+    end
 
     assert pass.([])
     assert pass.([{"gametype", "XDEATHMATCH", :eq}])

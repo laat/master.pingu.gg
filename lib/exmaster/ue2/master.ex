@@ -11,18 +11,22 @@ defmodule Exmaster.UE2.Master do
 
   - A game server (`UT2K4SERVER`) sends two flags, gets the frame of
     ports OpenSpy's master sends, and keeps the connection open, sending
-    a heartbeat every 60 seconds. It is listed at the connection's IP and the port
-    its heartbeat names, for as long as the connection lasts: TCP has
-    proved the IP, and the port only matters to that IP. A connection
-    that sends nothing for 150 seconds is closed, and its server dropped.
+    a heartbeat every 60 seconds. It is listed at the connection's IP and
+    the port its heartbeat names, for as long as the connection lasts:
+    TCP has proved the IP, and the port only matters to that IP. A
+    connection that hasn't had a heartbeat listed for 150 seconds is
+    closed, and its server dropped.
   - A client (`UT2K4CLIENT`) sends a verification, gets `VERIFIED`, and
     asks for the list, with filters, or the message of the day, and the
     connection is closed after the answer.
 
   A listener process owns the socket; an acceptor hands each connection to
-  a task under a `Task.Supervisor`, which takes at most 4,096 at once.
-  The listener counts them by IP: an IP can have as many open as it can
-  list servers (`max_per_ip`), and 8 more.
+  a task under a `Task.Supervisor`. The listener counts them: 256 at once
+  in the handshake or with a client, and 4,096 servers' that have done
+  it, so servers can't take the slots clients need. An IP can have as
+  many open as it can list servers (`max_per_ip`), and 8 more.
+  Connections are closed 15 seconds after they open, but for servers'
+  once their handshake is done.
   """
   use GenServer
   require Logger
@@ -33,7 +37,8 @@ defmodule Exmaster.UE2.Master do
   @server "UT2K4SERVER"
   @client "UT2K4CLIENT"
 
-  @max_connections 4_096
+  @max_uplinks 4_096
+  @max_others 256
   @client_slots 8
   # Per IP: 10 connections at once, then one a second.
   @connect_limit {1, 1_000, 10}
@@ -41,9 +46,9 @@ defmodule Exmaster.UE2.Master do
   # one every 3 seconds.
   @list_limit {1, 3_000, 5}
   # The handshake, and a client's request after it, have to be done this
-  # long after connecting. A client's connection is closed this long after
-  # it opened, whatever it is doing, so one that reads slowly can't keep a
-  # slot.
+  # long after connecting. A connection is closed this long after it
+  # opened, whatever it is doing, unless it is a server's that has done
+  # its handshake, so one that reads slowly can't keep a slot.
   @timeout 10_000
   @lifetime 15_000
   # UT2004 heartbeats every 60 seconds.
@@ -52,9 +57,12 @@ defmodule Exmaster.UE2.Master do
   # waits for the gap to end, and a later one replaces it.
   @gap 10_000
   @max_frame 32_768
+  # A list goes out in chunks of this size, each paid for from the reply
+  # budget before it is sent.
+  @chunk 65_536
 
-  @hostname_length 127
-  @name_length 63
+  @hostname_bytes 127
+  @name_bytes 63
 
   def child_spec(opts),
     do: %{
@@ -72,11 +80,19 @@ defmodule Exmaster.UE2.Master do
   @impl true
   def init(opts) do
     ip = Keyword.get(opts, :ip)
-    # What each connection needs; :idle and :gap are for tests.
+    # What each connection needs. :idle, :gap, :lifetime, :max_uplinks
+    # and :max_others are for tests.
     conf = %{
+      owner: self(),
       store: Keyword.get(opts, :store, store()),
       idle: Keyword.get(opts, :idle, @idle),
-      gap: Keyword.get(opts, :gap, @gap)
+      gap: Keyword.get(opts, :gap, @gap),
+      lifetime: Keyword.get(opts, :lifetime, @lifetime)
+    }
+
+    max = %{
+      uplink: Keyword.get(opts, :max_uplinks, @max_uplinks),
+      other: Keyword.get(opts, :max_others, @max_others)
     }
 
     # Accepted sockets inherit these.
@@ -96,7 +112,10 @@ defmodule Exmaster.UE2.Master do
     case :gen_tcp.listen(Keyword.get(opts, :port, 0), sock_opts) do
       {:ok, lsock} ->
         {:ok, port} = :inet.port(lsock)
-        {:ok, tasks} = Task.Supervisor.start_link(max_children: @max_connections)
+
+        {:ok, tasks} =
+          Task.Supervisor.start_link(max_children: max.uplink + max.other)
+
         me = self()
         spawn_link(fn -> accept(lsock, me) end)
         Logger.info("UT2004 master listening on inet port #{port}")
@@ -104,8 +123,7 @@ defmodule Exmaster.UE2.Master do
         per_ip =
           Keyword.get_lazy(opts, :max_per_ip, fn ->
             Application.fetch_env!(:exmaster, :max_per_ip)
-          end) +
-            @client_slots
+          end) + @client_slots
 
         {:ok,
          %{
@@ -115,7 +133,9 @@ defmodule Exmaster.UE2.Master do
            conf: conf,
            per_ip: per_ip,
            conns: %{},
-           ips: %{}
+           ips: %{},
+           counts: %{uplink: 0, other: 0},
+           max: max
          }}
 
       {:error, reason} ->
@@ -129,23 +149,37 @@ defmodule Exmaster.UE2.Master do
   # A connection from ip wants a task.
   def handle_call({:start, ip}, _from, state) do
     with true <- Map.get(state.ips, ip, 0) < state.per_ip,
+         true <- state.counts.other < state.max.other,
          {:ok, pid} <- Task.Supervisor.start_child(state.tasks, fn -> serve(state.conf) end) do
       Process.monitor(pid)
 
       {:reply, {:ok, pid},
        %{
          state
-         | conns: Map.put(state.conns, pid, ip),
-           ips: Map.update(state.ips, ip, 1, &(&1 + 1))
+         | conns: Map.put(state.conns, pid, {ip, :other}),
+           ips: Map.update(state.ips, ip, 1, &(&1 + 1)),
+           counts: Map.update!(state.counts, :other, &(&1 + 1))
        }}
     else
       _ -> {:reply, :refused, state}
     end
   end
 
+  # A connection has done a server's handshake and wants a server's slot.
+  def handle_call(:uplink, {pid, _}, state) do
+    case state.conns do
+      %{^pid => {ip, :other}} when state.counts.uplink < state.max.uplink ->
+        counts = %{uplink: state.counts.uplink + 1, other: state.counts.other - 1}
+        {:reply, :ok, %{state | conns: Map.put(state.conns, pid, {ip, :uplink}), counts: counts}}
+
+      _ ->
+        {:reply, :full, state}
+    end
+  end
+
   @impl true
   def handle_info({:DOWN, _, :process, pid, _}, state) do
-    {ip, conns} = Map.pop(state.conns, pid)
+    {{ip, kind}, conns} = Map.pop(state.conns, pid)
 
     ips =
       case Map.fetch!(state.ips, ip) do
@@ -153,7 +187,8 @@ defmodule Exmaster.UE2.Master do
         n -> Map.put(state.ips, ip, n - 1)
       end
 
-    {:noreply, %{state | conns: conns, ips: ips}}
+    {:noreply,
+     %{state | conns: conns, ips: ips, counts: Map.update!(state.counts, kind, &(&1 - 1))}}
   end
 
   defp accept(lsock, owner) do
@@ -181,8 +216,11 @@ defmodule Exmaster.UE2.Master do
   defp serve(conf) do
     receive do
       {:socket, sock} ->
+        # Killed, the task takes the socket, which it owns, with it.
+        {:ok, kill} = :timer.kill_after(conf.lifetime)
+
         try do
-          converse(sock, conf)
+          converse(sock, conf, kill)
         after
           :gen_tcp.close(sock)
         end
@@ -193,7 +231,7 @@ defmodule Exmaster.UE2.Master do
 
   # A peer that has gone (a scanner that connects and resets) makes a
   # send or peername fail, which ends the conversation like any refusal.
-  defp converse(sock, conf) do
+  defp converse(sock, conf, kill) do
     deadline = Exmaster.now() + @timeout
 
     with {:ok, {ip, _}} <- :inet.peername(sock),
@@ -201,7 +239,7 @@ defmodule Exmaster.UE2.Master do
          {:ok, hello, buf} <- next_frame(sock, "", deadline),
          {:ok, name, version} <- UE2.parse_hello(hello) do
       case name do
-        @server -> server(sock, buf, ip, version, conf, deadline)
+        @server -> server(sock, buf, ip, version, conf, kill, deadline)
         @client -> client(sock, buf, ip, conf.store, deadline)
         _ -> send_frame(sock, UE2.string("DENIED"))
       end
@@ -222,16 +260,24 @@ defmodule Exmaster.UE2.Master do
   # either.
   @detected_ports <<1, 120::little-32, 7778::little-32, 7777::little-32, 7787::little-32>>
 
-  defp server(sock, buf, ip, version, conf, deadline) do
+  defp server(sock, buf, ip, version, conf, kill, deadline) do
     with :ok <- send_frame(sock, UE2.string("APPROVED")),
          {:ok, _flags, buf} <- next_frame(sock, buf, deadline),
+         :ok <- GenServer.call(conf.owner, :uplink),
+         {:ok, :cancel} <- :timer.cancel(kill),
          :ok <- send_frame(sock, @detected_ports) do
+      now = Exmaster.now()
+
       state = %{
         ip: ip,
         version: version,
         store: conf.store,
         idle: conf.idle,
         gap: conf.gap,
+        # Orders this node's connections: an older one doesn't take a
+        # server from a newer one.
+        conn: :erlang.unique_integer([:monotonic]),
+        idle_at: now + conf.idle,
         addr: nil,
         listed: false,
         refused: nil,
@@ -239,45 +285,40 @@ defmodule Exmaster.UE2.Master do
         stored_at: nil
       }
 
-      sock |> uplink(buf, Exmaster.now() + conf.idle, state) |> drop()
+      sock |> uplink(buf, state) |> drop()
     end
   end
 
   # Frames until the connection closes or idles: heartbeats (1), stats
   # (2) and the version of the server's packages (4), the last two
   # ignored. A heartbeat waits as pending until the gap since the last
-  # stored one is over.
-  defp uplink(sock, buf, idle, state) do
+  # stored one is over. Only a heartbeat that lists the server puts off
+  # idling, so a connection can't keep its slot with frames that list
+  # nothing.
+  defp uplink(sock, buf, state) do
     now = Exmaster.now()
 
     due =
       cond do
-        state.pending == nil -> idle
+        state.pending == nil -> state.idle_at
         state.stored_at == nil -> now
         true -> state.stored_at + state.gap
       end
 
     cond do
       state.pending && due <= now ->
-        uplink(sock, buf, idle, store_heartbeat(state.pending, %{state | pending: nil}, now))
+        uplink(sock, buf, store_heartbeat(state.pending, %{state | pending: nil}, now))
 
-      idle <= now ->
+      state.idle_at <= now ->
         Logger.debug("ue2: #{who(state)} idle, closing")
         state
 
       true ->
-        case next_frame(sock, buf, min(due, idle)) do
-          {:ok, <<1, heartbeat::binary>>, buf} ->
-            uplink(sock, buf, Exmaster.now() + state.idle, %{state | pending: heartbeat})
-
-          {:ok, _, buf} ->
-            uplink(sock, buf, Exmaster.now() + state.idle, state)
-
-          {:timeout, buf} ->
-            uplink(sock, buf, idle, state)
-
-          :error ->
-            state
+        case next_frame(sock, buf, min(due, state.idle_at)) do
+          {:ok, <<1, heartbeat::binary>>, buf} -> uplink(sock, buf, %{state | pending: heartbeat})
+          {:ok, _, buf} -> uplink(sock, buf, state)
+          {:timeout, buf} -> uplink(sock, buf, state)
+          :error -> state
         end
     end
   end
@@ -290,7 +331,8 @@ defmodule Exmaster.UE2.Master do
          true <- hb.port in 1..65_534//1 do
       addr = {state.ip, hb.port}
       if state.addr not in [nil, addr], do: drop(state)
-      register(hb, addr, %{state | addr: addr, stored_at: now}, now)
+      state = register(hb, addr, %{state | addr: addr, stored_at: now}, now)
+      if state.listed, do: %{state | idle_at: now + state.idle}, else: state
     else
       _ ->
         Logger.debug("ue2: a heartbeat from #{who(state)} that doesn't parse")
@@ -299,7 +341,9 @@ defmodule Exmaster.UE2.Master do
   end
 
   # Writes the entry if the server's current one is still what it was read
-  # as: another connection may have written it in between.
+  # as: another connection may have written it in between. A server that
+  # a newer connection lists is left to it: an old connection of a server
+  # that reconnected may still be open, and heartbeat late.
   defp register(hb, addr, state, now, tries \\ 3) do
     existing = Store.lookup(state.store, addr, now)
     values = UE2.filter_values(hb)
@@ -308,10 +352,10 @@ defmodule Exmaster.UE2.Master do
     entry = %{
       game: @game,
       version: Integer.to_string(state.version),
-      hostname: String.slice(hb.hostname, 0, @hostname_length),
-      map: String.slice(hb.map, 0, @name_length),
-      gametype: String.slice(hb.gametype, 0, @name_length),
-      skill: String.slice(hb.skill, 0, @name_length),
+      hostname: UE2.cut(hb.hostname, @hostname_bytes),
+      map: UE2.cut(hb.map, @name_bytes),
+      gametype: UE2.cut(hb.gametype, @name_bytes),
+      skill: UE2.cut(hb.skill, @name_bytes),
       clients: hb.players |> max(0) |> min(255),
       max_clients: hb.max_players |> max(0) |> min(255),
       # UT2004 sends 0: its query port is the game port's next.
@@ -320,25 +364,33 @@ defmodule Exmaster.UE2.Master do
       filters: values,
       mutators: mutators,
       via: self(),
+      conn: state.conn,
       seen: now,
       expires: now + state.idle
     }
 
-    case Store.put(state.store, addr, entry, now, existing) do
-      :ok ->
-        unless state.listed,
-          do: Logger.info("ue2: #{Addr.to_string(addr)} listed, version=#{entry.version}")
+    case existing && existing.conn > state.conn do
+      true ->
+        Logger.debug("ue2: #{Addr.to_string(addr)} is listed through a newer connection")
+        %{state | listed: false, refused: nil}
 
-        %{state | listed: true, refused: nil}
+      _ ->
+        case Store.put(state.store, addr, entry, now, existing) do
+          :ok ->
+            unless state.listed,
+              do: Logger.info("ue2: #{Addr.to_string(addr)} listed, version=#{entry.version}")
 
-      {:error, :changed} when tries > 1 ->
-        register(hb, addr, state, now, tries - 1)
+            %{state | listed: true, refused: nil}
 
-      {:error, reason} ->
-        if state.refused != reason,
-          do: Logger.warning("ue2: #{Addr.to_string(addr)} not listed: #{reason}")
+          {:error, :changed} when tries > 1 ->
+            register(hb, addr, state, now, tries - 1)
 
-        %{state | listed: false, refused: reason}
+          {:error, reason} ->
+            if state.refused != reason,
+              do: Logger.warning("ue2: #{Addr.to_string(addr)} not listed: #{reason}")
+
+            %{state | listed: false, refused: reason}
+        end
     end
   end
 
@@ -352,8 +404,6 @@ defmodule Exmaster.UE2.Master do
   # A client: its verification, then one request, the list (0) or the
   # message of the day (1).
   defp client(sock, buf, ip, store, deadline) do
-    {:ok, _} = :timer.kill_after(@lifetime)
-
     with :ok <- send_frame(sock, [UE2.string("APPROVED"), <<3::little-32>>]),
          {:ok, _verification, buf} <- next_frame(sock, buf, deadline),
          :ok <- send_frame(sock, UE2.string("VERIFIED")),
@@ -367,8 +417,10 @@ defmodule Exmaster.UE2.Master do
   end
 
   # The list: a frame with the count and 1, then a frame a server. The
-  # reply budget is reserved before the list is made, as the other masters
-  # reserve it.
+  # least a reply costs is reserved before the list is made, as the other
+  # masters reserve it; the rest is paid a chunk at a time, waiting for
+  # the budget when it runs out, so a list larger than its burst still
+  # goes out, at its rate, until the connection's 15 seconds are up.
   defp list(sock, ip, query, store) do
     now = Exmaster.now()
 
@@ -380,16 +432,56 @@ defmodule Exmaster.UE2.Master do
             UE2.matches?(entry, filters),
             do: UE2.frame(UE2.encode_entry(addr, entry))
 
-      size = IO.iodata_length(entries)
+      Logger.debug("ue2: list for #{:inet.ntoa(ip)}, #{length(entries)} servers")
 
-      with {:budget, :ok} <- {:budget, RateLimit.charge_reply(size, now)},
-           :ok <- send_frame(sock, <<length(entries)::little-32, 1>>) do
-        Logger.debug("ue2: list for #{:inet.ntoa(ip)}, #{length(entries)} servers")
-        :gen_tcp.send(sock, entries)
-      end
+      with :ok <- send_frame(sock, <<length(entries)::little-32, 1>>),
+           do: send_paid(sock, chunks(entries), RateLimit.min_reply())
     else
       {:budget, _} -> Logger.debug("ue2: a list over the reply budget")
       _ -> :ok
+    end
+  end
+
+  # Frames in chunks of at most @chunk bytes (or one frame), with their
+  # sizes.
+  defp chunks(frames) do
+    frames
+    |> Enum.chunk_while(
+      {[], 0},
+      fn frame, {acc, size} ->
+        n = IO.iodata_length(frame)
+
+        if acc != [] and size + n > @chunk,
+          do: {:cont, {Enum.reverse(acc), size}, {[frame], n}},
+          else: {:cont, {[frame | acc], size + n}}
+      end,
+      fn
+        {[], _} -> {:cont, {[], 0}}
+        {acc, size} -> {:cont, {Enum.reverse(acc), size}, {[], 0}}
+      end
+    )
+  end
+
+  # Sends each chunk once the budget has paid for it; credit is what the
+  # reservation has paid for already.
+  defp send_paid(_sock, [], _credit), do: :ok
+
+  defp send_paid(sock, [{chunk, size} | rest], credit) do
+    with :ok <- pay(max(size - credit, 0)),
+         :ok <- :gen_tcp.send(sock, chunk),
+         do: send_paid(sock, rest, max(credit - size, 0))
+  end
+
+  defp pay(0), do: :ok
+
+  defp pay(bytes) do
+    case RateLimit.spend_reply(bytes, Exmaster.now()) do
+      :ok ->
+        :ok
+
+      {:error, wait} ->
+        Process.sleep(wait)
+        pay(bytes)
     end
   end
 

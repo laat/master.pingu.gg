@@ -110,6 +110,16 @@ defmodule Exmaster.RateLimit do
   def charge_reply(size, _now) when size <= @min_reply, do: :ok
   def charge_reply(size, now), do: take(:replies, @replies, size - @min_reply, now)
 
+  @doc """
+  Charges bytes of a reply that goes out in parts, as UT2004's lists do,
+  after reserve_reply/1 has paid for the first `min_reply/0`: `:ok`, or
+  `{:error, ms}` until there would be enough.
+  """
+  def spend_reply(bytes, now), do: take(:replies, @replies, bytes, now)
+
+  @doc "The least a reply costs, which reserve_reply/1 reserves."
+  def min_reply, do: @min_reply
+
   @doc false
   def clear, do: :ets.delete_all_objects(@table)
 
