@@ -26,7 +26,8 @@ defmodule Exmaster.UE2.Master do
   it, so servers can't take the slots clients need. An IP can have as
   many open as it can list servers (`max_per_ip`), and 8 more.
   Connections are closed 15 seconds after they open, but for servers'
-  once their handshake is done.
+  once their handshake is done; time a list waits for the reply budget
+  doesn't count, up to a minute of it.
   """
   use GenServer
   require Logger
@@ -48,9 +49,12 @@ defmodule Exmaster.UE2.Master do
   # The handshake, and a client's request after it, have to be done this
   # long after connecting. A connection is closed this long after it
   # opened, whatever it is doing, unless it is a server's that has done
-  # its handshake, so one that reads slowly can't keep a slot.
+  # its handshake, so one that reads slowly can't keep a slot. Time a
+  # list spends waiting for the reply budget moves that, up to @max_wait
+  # in all.
   @timeout 10_000
   @lifetime 15_000
+  @max_wait 60_000
   # UT2004 heartbeats every 60 seconds.
   @idle 150_000
   # A server's heartbeats are stored at most this often; one in between
@@ -217,10 +221,11 @@ defmodule Exmaster.UE2.Master do
     receive do
       {:socket, sock} ->
         # Killed, the task takes the socket, which it owns, with it.
+        ends = Exmaster.now() + conf.lifetime
         {:ok, kill} = :timer.kill_after(conf.lifetime)
 
         try do
-          converse(sock, conf, kill)
+          converse(sock, conf, {kill, ends})
         after
           :gen_tcp.close(sock)
         end
@@ -231,7 +236,7 @@ defmodule Exmaster.UE2.Master do
 
   # A peer that has gone (a scanner that connects and resets) makes a
   # send or peername fail, which ends the conversation like any refusal.
-  defp converse(sock, conf, kill) do
+  defp converse(sock, conf, life) do
     deadline = Exmaster.now() + @timeout
 
     with {:ok, {ip, _}} <- :inet.peername(sock),
@@ -239,8 +244,8 @@ defmodule Exmaster.UE2.Master do
          {:ok, hello, buf} <- next_frame(sock, "", deadline),
          {:ok, name, version} <- UE2.parse_hello(hello) do
       case name do
-        @server -> server(sock, buf, ip, version, conf, kill, deadline)
-        @client -> client(sock, buf, ip, conf.store, deadline)
+        @server -> server(sock, buf, ip, version, conf, life, deadline)
+        @client -> client(sock, buf, ip, conf.store, life, deadline)
         _ -> send_frame(sock, UE2.string("DENIED"))
       end
     end
@@ -260,7 +265,7 @@ defmodule Exmaster.UE2.Master do
   # either.
   @detected_ports <<1, 120::little-32, 7778::little-32, 7777::little-32, 7787::little-32>>
 
-  defp server(sock, buf, ip, version, conf, kill, deadline) do
+  defp server(sock, buf, ip, version, conf, {kill, _}, deadline) do
     with :ok <- send_frame(sock, UE2.string("APPROVED")),
          {:ok, _flags, buf} <- next_frame(sock, buf, deadline),
          :ok <- GenServer.call(conf.owner, :uplink),
@@ -403,13 +408,13 @@ defmodule Exmaster.UE2.Master do
 
   # A client: its verification, then one request, the list (0) or the
   # message of the day (1).
-  defp client(sock, buf, ip, store, deadline) do
+  defp client(sock, buf, ip, store, life, deadline) do
     with :ok <- send_frame(sock, [UE2.string("APPROVED"), <<3::little-32>>]),
          {:ok, _verification, buf} <- next_frame(sock, buf, deadline),
          :ok <- send_frame(sock, UE2.string("VERIFIED")),
          {:ok, request, _} <- next_frame(sock, buf, deadline) do
       case request do
-        <<0, query::binary>> -> list(sock, ip, query, store)
+        <<0, query::binary>> -> list(sock, ip, query, store, life)
         <<1, _::binary>> -> send_frame(sock, [UE2.string(""), <<0::little-32>>])
         _ -> :ok
       end
@@ -420,8 +425,9 @@ defmodule Exmaster.UE2.Master do
   # least a reply costs is reserved before the list is made, as the other
   # masters reserve it; the rest is paid a chunk at a time, waiting for
   # the budget when it runs out, so a list larger than its burst still
-  # goes out, at its rate, until the connection's 15 seconds are up.
-  defp list(sock, ip, query, store) do
+  # goes out, at its rate. The time it waits moves the connection's end,
+  # which send_paid/5 keeps from here on in place of the kill timer.
+  defp list(sock, ip, query, store, {kill, ends}) do
     now = Exmaster.now()
 
     with {:ok, filters} <- UE2.parse_query(query),
@@ -434,8 +440,10 @@ defmodule Exmaster.UE2.Master do
 
       Logger.debug("ue2: list for #{:inet.ntoa(ip)}, #{length(entries)} servers")
 
+      :timer.cancel(kill)
+
       with :ok <- send_frame(sock, <<length(entries)::little-32, 1>>),
-           do: send_paid(sock, chunks(entries), RateLimit.min_reply())
+           do: send_paid(sock, chunks(entries), RateLimit.min_reply(), ends, 0)
     else
       {:budget, _} -> Logger.debug("ue2: a list over the reply budget")
       _ -> :ok
@@ -463,25 +471,35 @@ defmodule Exmaster.UE2.Master do
   end
 
   # Sends each chunk once the budget has paid for it; credit is what the
-  # reservation has paid for already.
-  defp send_paid(_sock, [], _credit), do: :ok
+  # reservation has paid for already. The connection ends at ends, moved
+  # by the time waited for the budget: a client that reads slowly has its
+  # 15 seconds, and one that stops reading is closed by the 5-second send
+  # timeout.
+  defp send_paid(_sock, [], _credit, _ends, _waited), do: :ok
 
-  defp send_paid(sock, [{chunk, size} | rest], credit) do
-    with :ok <- pay(max(size - credit, 0)),
-         :ok <- :gen_tcp.send(sock, chunk),
-         do: send_paid(sock, rest, max(credit - size, 0))
+  defp send_paid(sock, [{chunk, size} | rest], credit, ends, waited) do
+    with {:ok, waited} <- pay(max(size - credit, 0), waited),
+         true <- Exmaster.now() < ends + waited,
+         :ok <- :gen_tcp.send(sock, chunk) do
+      send_paid(sock, rest, max(credit - size, 0), ends, waited)
+    else
+      _ -> :error
+    end
   end
 
-  defp pay(0), do: :ok
+  defp pay(0, waited), do: {:ok, waited}
 
-  defp pay(bytes) do
+  defp pay(bytes, waited) do
     case RateLimit.spend_reply(bytes, Exmaster.now()) do
       :ok ->
-        :ok
+        {:ok, waited}
 
-      {:error, wait} ->
+      {:error, wait} when waited + wait <= @max_wait ->
         Process.sleep(wait)
-        pay(bytes)
+        pay(bytes, waited + wait)
+
+      {:error, _} ->
+        :error
     end
   end
 

@@ -216,6 +216,27 @@ defmodule Exmaster.UE2Test do
     assert pass.([{"currentplayers", "0", :gt}, {"currentplayers", "3", :le}])
     refute pass.([{"currentplayers", "3", :lt}])
     assert pass.([{"password", "false", :eq}])
+    # Keys are cut as a server's are.
+    long = "ThisRuleNameIsLongerThanThirtyTwoBytes"
+
+    {:ok, [{key, _, _, _}]} =
+      UE2.parse_query(IO.iodata_to_binary([1, UE2.string(long), UE2.string("6"), 0]))
+
+    assert key == long |> binary_part(0, 32) |> String.downcase()
+
+    assert Map.has_key?(
+             UE2.filter_values(%{
+               hostname: "",
+               map: "",
+               gametype: "",
+               skill: "",
+               players: 0,
+               max_players: 0,
+               rules: [{long, "5"}]
+             }),
+             key
+           )
+
     # Keys the server doesn't have match.
     assert pass.([{"nosuchkey", "x", :eq}])
     assert pass.([{"mutator", "MutInstaGib", :eq}])

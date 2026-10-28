@@ -313,14 +313,16 @@ defmodule Exmaster.UE2.MasterTest do
     assert list(port) == [{@localhost, 7757, 7758, "exmaster test"}]
   end
 
-  # 4,000 servers with long names come to about 1.2 MB, more than the
-  # reply budget's burst.
+  # 5,000 servers with long names, more than one listener's servers, as
+  # the store holds other nodes' too, come to about 1.5 MB, more than the
+  # reply budget's burst: half a second of waiting for it, more than the
+  # connection's lifetime here, which the waiting doesn't count against.
   test "a list larger than the reply budget's burst still goes out" do
-    port = start()
+    port = start(lifetime: 500)
     now = Exmaster.now()
     name = String.duplicate("n", 127)
 
-    for i <- 0..3_999 do
+    for i <- 0..4_999 do
       ip = {198, 51, div(i, 32), rem(i, 32) + 1}
 
       entry = %{
@@ -344,7 +346,7 @@ defmodule Exmaster.UE2.MasterTest do
       :ok = Store.put(@store, {ip, 7757}, entry, now, nil)
     end
 
-    assert length(list(port)) == 4_000
+    assert length(list(port)) == 5_000
   end
 
   test "frames over 32 KB close the connection; a heartbeat in the hello's place is denied" do

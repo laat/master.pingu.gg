@@ -171,8 +171,8 @@ defmodule Exmaster.UE2 do
   @doc """
   A list query's filters, from after its message byte: a count, then
   key, value and a comparison each. `{:ok, [{key, value, op, number}]}`
-  or `:error`. Key and value are in lower case, the value cut as a
-  server's are and read as a number once. The ops are `:eq`, `:ne`,
+  or `:error`. Key and value are in lower case and cut as a server's
+  are, and the value read as a number once. The ops are `:eq`, `:ne`,
   `:lt`, `:le`, `:gt`, `:ge`; a filter with another one is left out, as
   UT2004's "disabled" is. More than 32 filters is an error: each is
   checked against every server.
@@ -190,7 +190,8 @@ defmodule Exmaster.UE2 do
       case @ops do
         %{^op => op} ->
           {text, number} = value(v)
-          filters(rest, n - 1, [{String.downcase(k), text, op, number} | acc])
+          key = k |> cut(@key_bytes) |> String.downcase()
+          filters(rest, n - 1, [{key, text, op, number} | acc])
 
         _ ->
           filters(rest, n - 1, acc)
