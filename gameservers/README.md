@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs sixteen game servers from LinuxGSM's images
+`docker-compose.yml` runs seventeen game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -22,6 +22,7 @@ which install the original server binaries and game data:
 | `cod4` | CoD4X 1.8's cod4x18_dedrun | 28964 | 127.0.0.1:20810, labelled `CoD4` |
 | `sof2` | Raven's sof2ded 1.03 | 20100 | 127.0.0.1:20110, labelled `SoF2` |
 | `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.1:27900, lists TCP 28900 |
+| `ut2k4` | Epic's ucc-bin 3369 | 7757, queries 7758 | TCP 127.0.0.1:28902 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy master shares 127.0.0.1:27900 with Quake 2's, on one socket (see
@@ -30,7 +31,8 @@ GameSpy master shares 127.0.0.1:27900 with Quake 2's, on one socket (see
 
 ```
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.1:27900,gsl:127.0.0.1:28900,\
-q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2 \
+q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2,\
+ue2:127.0.0.1:28902 \
   elixir --sname exmaster -S mix run --no-halt
 
 gameservers/run.sh                  # start the servers, show the lists
@@ -42,6 +44,7 @@ quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
 quakestat -gsm,bfield1942 127.0.0.1:28900
 quakestat -gsm,mohaa 127.0.0.1:28900
 quakestat -gsm,ut 127.0.0.1:28900
+quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
 docker compose -f gameservers/docker-compose.yml down
@@ -49,13 +52,13 @@ docker compose -f gameservers/docker-compose.yml down
 
 Server files are kept in `data/` (ignored by git): about 1.3 GB for the
 Quake servers, 170 MB for Battlefield 1942, 3 GB for MOH:AA, 3.6 GB for
-RTCW, ET, ET: Legacy, Xonotic and Warfork together, and 420 MB for
-Unreal Tournament. The image installs a game only into an empty
-`serverfiles`. q3, q2 and qw mount a config there, and Battlefield 1942
-and Unreal Tournament read theirs from there, so `run.sh` installs those
-five first, with only `/data` mounted, whenever their executable is
-missing, then puts Battlefield 1942's config in place and rewrites
-Unreal Tournament's before they start. The others mount only their
+RTCW, ET, ET: Legacy, Xonotic and Warfork together, 420 MB for Unreal
+Tournament and 5.7 GB for UT2004. The image installs a game only into an
+empty `serverfiles`. q3, q2 and qw mount a config there, and Battlefield
+1942, Unreal Tournament and UT2004 read theirs from there, so `run.sh`
+installs those six first, with only `/data` mounted, whenever their
+executable is missing, then puts Battlefield 1942's config in place,
+rewrites Unreal Tournament's and writes UT2004's before they start. The others mount only their
 LinuxGSM instance config, which is outside `serverfiles`, and the image
 installs them as they first start.
 
@@ -130,13 +133,22 @@ own from `config/` instead:
   `FirstRun` and adds its four default masters to it, which `extra_hosts`
   points at 127.0.0.3 should that happen. `-multihome=127.0.0.1` binds
   its sockets to loopback.
+- UT2004's masters are in its ini as well, `MasterServerList` under
+  `[IpDrv.MasterServerLink]`. LinuxGSM's install exits after its CD key
+  step, before it writes the ini, so `run.sh` writes it from the stock
+  `UT2004.ini`, with exmaster on 127.0.0.1:28902 as its only master and
+  `UplinkToGamespy=False`, which would have it heartbeat
+  `master0.gamespy.com` too. `extra_hosts` points Epic's masters, those
+  in LinuxGSM's ini (333networks, errorist and OpenSpy) and GameSpy's at
+  127.0.0.3 all the same. `-multihome=127.0.0.1` binds its sockets to
+  loopback; it runs on 7757, since UT99 has 7777.
 
 q3ded, quake2 and the others above are bound to loopback, so they can't
 send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100) and not host 127.0.0.1 and not host ::1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758) and not host 127.0.0.1 and not host ::1'
 ```
 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
@@ -258,3 +270,30 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   them and queried each server.
 - No game-port traffic left loopback.
 
+
+## What it showed for UT2004 (2026-10-28)
+
+- Its uplink connects to TCP 28902 and waits for the master's challenge,
+  answers it (`UT2K4SERVER`, 3369, and CD key hashes, though it has no
+  key: "Couldn't open cdkey file."), and after `APPROVED` sends two zero
+  ints. Then it waits for the master: with nothing more it gave up after
+  10 seconds ("Master server connection failed") and connected again.
+  With the frame OpenSpy's master sends there, it sent the version of its
+  packages and heartbeat every 60 seconds, the first a minute after it
+  started, whether or not anything had changed.
+- Against exmaster it was listed at 127.0.0.1:7757 on its first
+  heartbeat. `query.py` got it, with `gametype` `xDeathMatch` too and
+  not with `xCTFGame`; qstat `-ut2004m` got it and queried it (`0/16
+  DM-Rankin xDeathMatch exmaster test`), and qstat's filters
+  (`gametype`, `status=notempty`, `notfull`, `password`, `nopassword`,
+  `nobots`, `weaponstay`, `noweaponstay`, `mutator=DMMutator`,
+  `MutInstaGib`, `-MutInstaGib`) each gave what they should.
+- Stopping it closed its connection, and exmaster dropped it at once.
+  After exmaster restarted, it was listed again at its next heartbeat,
+  33 seconds later.
+- It heartbeat its own port, 7757, though the master had sent it 7777.
+- No traffic left loopback from its ports, and it looked up no master
+  name. LinuxGSM's monitor queries it (gamedig, 7758), so its instance
+  config needs no `querymode`. On the container's first start the
+  monitor raced the image's start, as above, and restarted it a minute
+  later.

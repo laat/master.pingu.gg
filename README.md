@@ -2,15 +2,15 @@
 
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2,
 QuakeWorld, Battlefield 1942, Medal of Honor: Allied Assault and Unreal
-Tournament (GameSpy). Game servers heartbeat it and clients ask it for
-server lists. It keeps the lists in memory (ETS) and nothing else: no
+Tournament (GameSpy), and Unreal Tournament 2004. Game servers heartbeat
+it and clients ask it for server lists. It keeps the lists in memory (ETS) and nothing else: no
 database, no server browser, no upstream masters.
 [gameservers/](gameservers/README.md) runs real game servers against it
 in Docker.
 
 The protocols are described in [docs/quake3.md](docs/quake3.md),
-[docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md)
-and [docs/gamespy.md](docs/gamespy.md).
+[docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md),
+[docs/gamespy.md](docs/gamespy.md) and [docs/ut2004.md](docs/ut2004.md).
 
 ## Running
 
@@ -32,7 +32,7 @@ OS and architecture it runs on.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs` and `gsl` |
+| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl` and `ue2` |
 | `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
 | `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
 | `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
@@ -60,6 +60,10 @@ packets that start with `\` are GameSpy's, the rest Quake 2's, and the
 All-Seeing Eye's heartbeat, `\hb\`, which BF1942 sends to the same
 port, is dropped (see [Sharing port 27900](docs/gamespy.md#sharing-port-27900)).
 Their lists hold only IPv4 too.
+
+UT2004's master, `ue2`, is one TCP listener, port 28902 in the game's
+ini, for its servers and its clients both (`ue2:28902`). It isn't in the
+default either, and its lists hold only IPv4.
 
 ### Several nodes
 
@@ -100,13 +104,15 @@ Exmaster.Supervisor
 ├── Exmaster.RateLimit        token buckets in a public ETS table
 ├── Exmaster.PG               the pg scope the stores share their lists in
 ├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw,
-│                             :exmaster_gs, and :exmaster_q3_<label> per label
+│                             :exmaster_gs, :exmaster_ue2, and :exmaster_q3_<label>
+│                             per label
 ├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
     ├── Exmaster.Listener     one per UDP socket, running Q3.Master, Q2.Master,
     │                         QW.Master, GS.Master, or Q2GS for Quake 2 and
     │                         GameSpy on one socket
-    └── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
+    ├── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
+    └── Exmaster.UE2.Master   one per TCP socket, with a task per connection
 ```
 
 - Each socket has a listener process that takes packets one at a time,
@@ -136,8 +142,8 @@ Exmaster.Supervisor
 - A packet that makes a protocol raise is dropped and logged at most once
   a minute, so a packet like that can't restart a listener in a loop.
 - Each protocol has its own module for the wire format (`Exmaster.Q3`,
-  `Exmaster.Q2`, `Exmaster.QW`, `Exmaster.GS`) and one for the master
-  (`*.Master`). The
+  `Exmaster.Q2`, `Exmaster.QW`, `Exmaster.GS`, `Exmaster.UE2`) and one
+  for the master (`*.Master`). The
   protocols share no code, and each master has its own copy of the code
   that decides when a listed server is asked again; Quake 2 and
   QuakeWorld each have their own table of whom they asked. What is shared
@@ -190,6 +196,19 @@ GameSpy's enctype 2 when they ask for it, as Battlefield 1942 does. The
 list server takes 64 connections at once, 5 an IP at once then one every
 3 seconds, gives each 5 seconds to ask and closes it after 10. See
 [docs/gamespy.md](docs/gamespy.md).
+
+### Unreal Tournament 2004
+
+A UT2004 server connects over TCP, answers the master's challenge (its
+CD key isn't checked: nothing can check it now), and heartbeats every 60
+seconds on that connection. It is listed at the connection's IP and the
+port its heartbeat names while the connection lasts, and dropped when it
+closes, or when it has sent nothing for 150 seconds. Heartbeats are
+stored at most once every 10 seconds. Clients connect, make one request,
+the list with filters by game type, players, mutators and the like or
+the empty message of the day, and are disconnected. The master takes
+4,096 connections, as many an IP as it may list servers and 8 more. See
+[docs/ut2004.md](docs/ut2004.md).
 
 ### Limits, for all of them
 

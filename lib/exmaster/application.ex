@@ -5,10 +5,13 @@ defmodule Exmaster.Application do
       Exmaster.Supervisor
       ├── Exmaster.RateLimit        token buckets, in ETS
       ├── Exmaster.PG               the pg scope the stores share their lists in
-      ├── Exmaster.Store            :exmaster_q3, :exmaster_q2, :exmaster_qw, and one
-      │                             per label, :exmaster_q3_<label>
+      ├── Exmaster.Store            :exmaster_q3, :exmaster_q2, :exmaster_qw,
+      │                             :exmaster_gs, :exmaster_ue2, and one per
+      │                             label, :exmaster_q3_<label>
       ├── Exmaster.Cluster          connects to the other nodes, if there are any
-      └── Exmaster.Listeners        an Exmaster.Listener per socket
+      └── Exmaster.Listeners        an Exmaster.Listener per UDP socket, and the
+                                    TCP ones, Exmaster.GS.ListServer and
+                                    Exmaster.UE2.Master
 
   The stores own the server lists, so a listener that restarts loses
   nothing; a store that restarts starts empty, and servers come back with
@@ -34,7 +37,8 @@ defmodule Exmaster.Application do
          ]}
     }
 
-    # One per master: Quake 3, Quake 2, QuakeWorld, and each label's.
+    # One per master: Quake 3, Quake 2, QuakeWorld, GameSpy, UT2004, and
+    # each label's.
     stores =
       for {name, store} <- Exmaster.Config.stores(listeners),
           do: {Exmaster.Store, name: store, label: to_string(name)}
@@ -51,10 +55,10 @@ defmodule Exmaster.Application do
     Supervisor.start_link(children, strategy: :one_for_one, name: Exmaster.Supervisor)
   end
 
-  # GameSpy lists go out over TCP; everything else is a UDP master.
+  # GameSpy lists and UT2004 go over TCP; everything else is a UDP master.
   defp listener(opts) do
-    if opts[:protocol] == Exmaster.GS.ListServer,
-      do: {Exmaster.GS.ListServer, opts},
+    if opts[:protocol] in [Exmaster.GS.ListServer, Exmaster.UE2.Master],
+      do: {opts[:protocol], opts},
       else: {Exmaster.Listener, opts}
   end
 end

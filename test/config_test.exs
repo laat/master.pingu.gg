@@ -50,6 +50,16 @@ defmodule Exmaster.ConfigTest do
                store: :exmaster_gs
              ]
            ]
+
+    assert Config.listeners!("ue2:28902") == [
+             [
+               protocol: Exmaster.UE2.Master,
+               ip: nil,
+               port: 28902,
+               label: nil,
+               store: :exmaster_ue2
+             ]
+           ]
   end
 
   test "a q2 and a gs listener on one address and port share a socket" do
@@ -92,6 +102,7 @@ defmodule Exmaster.ConfigTest do
              {:q2, :exmaster_q2},
              {:qw, :exmaster_qw},
              {:gs, :exmaster_gs},
+             {:ue2, :exmaster_ue2},
              {"UrbanTerror", :exmaster_q3_UrbanTerror}
            ]
   end
@@ -99,6 +110,8 @@ defmodule Exmaster.ConfigTest do
   test "bad specs" do
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("qw:[::]:27000") end
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("gsl:[::]:28900") end
+    assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("ue2:[::]:28902") end
+    assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("ue2:28902=x") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("q2:27900=Q2") end
 
     for bad <- ["q4:27950", "q3", "q3:x", "q3:70000", "q3:27950=bad label", "q3:nohost:1"] do

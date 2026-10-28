@@ -161,3 +161,19 @@ services:
     volumes:
       - ./data/ut99:/data
       - ./config/ut99server.cfg:/data/config-lgsm/ut99server/ut99server.cfg:ro
+  ut2k4:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:ut2k4
+    container_name: exmaster-ut2k4
+    # The masters in LinuxGSM's ini and the stock one, and GameSpy's, to
+    # 127.0.0.3, where nothing listens. run.sh writes the ini.
+    extra_hosts:
+      - ut2004master.333networks.com:127.0.0.3
+      - ut2004master.errorist.eu:127.0.0.3
+      - utmaster.openspy.net:127.0.0.3
+      - ut2004master1.epicgames.com:127.0.0.3
+      - ut2004master2.epicgames.com:127.0.0.3
+      - master0.gamespy.com:127.0.0.3
+    volumes:
+      - ./data/ut2k4:/data
+      - ./config/ut2k4server.cfg:/data/config-lgsm/ut2k4server/ut2k4server.cfg:ro
