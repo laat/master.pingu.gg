@@ -97,8 +97,7 @@ own from `config/` instead:
   `serverfiles`, so the image installs it; it binds 127.0.0.1, but the
   query port, 12300, listens on 0.0.0.0. It also sets `sv_gamespy 1`
   before `+map` (see [docs/gamespy.md](../docs/gamespy.md#medal-of-honor-allied-assault))
-  and `querymode="1"`, without which LinuxGSM's monitor, which can't
-  query it, starts a second instance.
+  and `querymode="1"`, since LinuxGSM's monitor can't query it.
 - RTCW, ET, ET: Legacy, Xonotic and Warfork don't run LinuxGSM's server
   configs at all: the start line in their instance config sets what they
   need, the master (`sv_master1`, Warfork's `masterservers`) included,
