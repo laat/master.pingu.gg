@@ -31,8 +31,9 @@ OS and architecture it runs on.
 | Variable | Default | Meaning |
 |---|---|---|
 | `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]` |
-| `EXMASTER_MAX_SERVERS` | `16384` | servers per master |
-| `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master |
+| `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
+| `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
+| `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
 | `EXMASTER_MAX_UNKNOWN_TAG` | `512` | Quake 3 servers with a heartbeat tag that's neither built in nor `DarkPlaces` |
 | `EXMASTER_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
 
@@ -44,12 +45,44 @@ on `::` with IPv4 mapped in, or on IPv4 alone where there is no IPv6.
 Quake 2 and QuakeWorld lists hold only IPv4 addresses, so they listen on
 IPv4.
 
+### Several nodes
+
+exmaster can run on several hosts behind one DNS name with an A record
+for each. A game server heartbeats one of them and a client asks one of
+them, maybe another, so the nodes share their server lists: every node
+answers with all of them. Each node still asks and checks only the
+servers that heartbeat it, and a server's replies come back to the node
+that asked, so challenges, rate limits and the limits above stay per
+node.
+
+The nodes are connected with Erlang distribution. Give each a name, the
+same cookie, and the list of nodes (its own name in it is skipped):
+
+```
+RELEASE_DISTRIBUTION=name RELEASE_NODE=exmaster@10.0.0.1 RELEASE_COOKIE=<secret> \
+EXMASTER_PEERS=exmaster@10.0.0.1,exmaster@10.0.0.2 \
+  _build/prod/rel/exmaster/bin/exmaster start
+```
+
+A node tries to connect to the others every 5 seconds. Distribution
+needs TCP 4369 (epmd) and a port per node, which
+`ERL_AFLAGS="-kernel inet_dist_listen_min 9100 inet_dist_listen_max 9100"`
+pins. It isn't encrypted, and a node with the cookie can run any code on
+the others, so keep it to a private network such as WireGuard or
+Tailscale, with those ports closed to the internet.
+
+When nodes lose each other, each goes on answering with what it had, and
+what it had from the others expires within 15 minutes unless they come
+back. When they do, each sends its list to the other.
+
 ## How it works
 
 ```
 Exmaster.Supervisor
 ├── Exmaster.RateLimit        token buckets in a public ETS table
+├── Exmaster.PG               the pg scope the stores share their lists in
 ├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw
+├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
     └── Exmaster.Listener     one per socket, running Q3.Master, Q2.Master or QW.Master
 ```
@@ -66,6 +99,13 @@ Exmaster.Supervisor
   listener built its update from, so two listeners answering for one
   server can't lose each other's changes. A listener that restarts loses
   nothing.
+- With several nodes, each store sends the servers it adds, replaces and
+  drops to the same master's store on the others, which keep them in a
+  second table, keyed by address and node. Queries answer from both
+  tables; a server two nodes list is sent once. A store that joins, after
+  a restart or a split, gets each other node's whole list, which replaces
+  what it had from that node. Times are moved from the sender's monotonic
+  clock to the receiver's. See `Exmaster.Store`.
 - Token buckets are one integer each (GCRA), updated with
   compare-and-swap. Listeners share them without a process in between.
   Time is counted in units of 1/rate ms, so byte costs don't round.
@@ -138,4 +178,5 @@ server whose slot gets taken is asked again at its next heartbeat.
 - A51 forwarding ports and duplicate ports. Both come from upstream
   lists or need status replies.
 - Surviving a restart: servers come back with their next heartbeat,
-  within 5 minutes for ioquake3.
+  within 5 minutes for ioquake3. With several nodes, the others' servers
+  come back at once.

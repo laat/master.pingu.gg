@@ -12,7 +12,8 @@ defmodule Exmaster do
   def now, do: System.monotonic_time(:millisecond)
 
   @doc """
-  The number of servers each master lists, in total and by game.
+  The number of servers each master lists, in total, by game, and of those
+  the ones this node lists itself rather than another.
 
       bin/exmaster rpc 'IO.inspect(Exmaster.stats())'
   """
@@ -22,7 +23,7 @@ defmodule Exmaster do
     for {name, store} <- @stores, into: %{} do
       entries = Store.all(store, now)
       games = Enum.frequencies_by(entries, fn {_, e} -> e.game end)
-      {name, %{servers: length(entries), games: games}}
+      {name, %{servers: length(entries), local: Store.local_count(store, now), games: games}}
     end
   end
 

@@ -4,6 +4,14 @@ if listen = System.get_env("EXMASTER_LISTEN") do
   config :exmaster, listen: listen
 end
 
+if peers = System.get_env("EXMASTER_PEERS") do
+  config :exmaster,
+    peers:
+      peers
+      |> String.split(",", trim: true)
+      |> Enum.map(&(&1 |> String.trim() |> String.to_atom()))
+end
+
 for {var, key} <- [
       {"EXMASTER_MAX_SERVERS", :max_servers},
       {"EXMASTER_MAX_PER_IP", :max_per_ip},
