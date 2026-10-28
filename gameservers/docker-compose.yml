@@ -8,6 +8,20 @@ x-server: &server
     UPDATE_CHECK: "0"
     UPDATE_ON_START: "false"
 
+# Call of Duty's masters are compiled in by name, each on a port of its own
+# (20510, 20610, 20710, 20810), and exmaster has a labelled listener on
+# each. The binaries also name Activision's CD-key servers and CoD4X's
+# update server, which go to 127.0.0.3, where nothing listens.
+x-cod-hosts: &cod-hosts
+  extra_hosts:
+    - codmaster.activision.com:127.0.0.1
+    - coduomaster.activision.com:127.0.0.1
+    - cod2master.activision.com:127.0.0.1
+    - cod4master.activision.com:127.0.0.1
+    - codauthorize.activision.com:127.0.0.3
+    - coduoauthorize.activision.com:127.0.0.3
+    - cod4update.cod4x.ovh:127.0.0.3
+
 services:
   q3:
     <<: *server
@@ -97,3 +111,38 @@ services:
     volumes:
       - ./data/wf:/data
       - ./config/wfserver.cfg:/data/config-lgsm/wfserver/wfserver.cfg:ro
+  cod:
+    <<: [*server, *cod-hosts]
+    image: ghcr.io/gameservermanagers/gameserver:cod
+    container_name: exmaster-cod
+    volumes:
+      - ./data/cod:/data
+      - ./config/codserver.cfg:/data/config-lgsm/codserver/codserver.cfg:ro
+  coduo:
+    <<: [*server, *cod-hosts]
+    image: ghcr.io/gameservermanagers/gameserver:coduo
+    container_name: exmaster-coduo
+    volumes:
+      - ./data/coduo:/data
+      - ./config/coduoserver.cfg:/data/config-lgsm/coduoserver/coduoserver.cfg:ro
+  cod2:
+    <<: [*server, *cod-hosts]
+    image: ghcr.io/gameservermanagers/gameserver:cod2
+    container_name: exmaster-cod2
+    volumes:
+      - ./data/cod2:/data
+      - ./config/cod2server.cfg:/data/config-lgsm/cod2server/cod2server.cfg:ro
+  cod4:
+    <<: [*server, *cod-hosts]
+    image: ghcr.io/gameservermanagers/gameserver:cod4
+    container_name: exmaster-cod4
+    volumes:
+      - ./data/cod4:/data
+      - ./config/cod4server.cfg:/data/config-lgsm/cod4server/cod4server.cfg:ro
+  sof2:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:sof2
+    container_name: exmaster-sof2
+    volumes:
+      - ./data/sof2:/data
+      - ./config/sof2server.cfg:/data/config-lgsm/sof2server/sof2server.cfg:ro

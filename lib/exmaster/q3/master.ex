@@ -89,11 +89,13 @@ defmodule Exmaster.Q3.Master do
 
   defp heartbeat(tag, from, ctx, now, state) do
     cond do
-      not Q3.valid_name?(tag, Q3.max_name_length()) ->
-        {[], state}
-
+      # Before the tag's check: SoF2's has a space in it. A flatline only
+      # has a listed server asked.
       Games.flatline?(tag) ->
         flatline(from, ctx, now, state)
+
+      not Q3.valid_name?(tag, Q3.max_name_length()) ->
+        {[], state}
 
       entry = Store.lookup(ctx.store, from, now) ->
         # A heartbeat with another tag doesn't reclassify a listed server,

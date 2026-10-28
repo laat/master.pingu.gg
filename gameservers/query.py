@@ -31,9 +31,9 @@ def ask(port, packet):
     return replies
 
 
-def q3(packet):
+def q3(packet, port=27950):
     out = []
-    for r in ask(27950, OOB + packet):
+    for r in ask(port, OOB + packet):
         body = r[4:].split(b"Response", 1)[1]
         i = 0
         while i < len(body):
@@ -67,6 +67,13 @@ for query in [b"getservers 68", b"getservers 68 empty", b"getservers 68 empty fu
               b"getservers 60 empty", b"getservers 84 empty",
               b"getserversExt Xonotic 3 empty", b"getservers Warfork 26 empty"]:
     print("q3 %-36s %s" % (query.decode(), q3(query)))
+# The labelled listeners, one per game, as their clients ask.
+for port, game, query in [(20510, "CoD", b"getservers 6 empty full"),
+                          (20610, "CoDUO", b"getservers 22 empty full"),
+                          (20710, "CoD2", b"getservers 118 empty full"),
+                          (20810, "CoD4", b"getservers 6 empty full"),
+                          (20110, "SoF2", b"getservers 2004 empty full")]:
+    print("q3 %-36s %s" % ("%s %s" % (game, query.decode()), q3(query, port)))
 print("q2 %-36s %s" % ("query", six_byte(27900, b"query\n", b"servers ")))
 print("qw %-36s %s" % ("c", six_byte(27000, b"c\n", b"d\n")))
 
