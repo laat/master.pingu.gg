@@ -1,7 +1,8 @@
 defmodule Exmaster do
   @moduledoc """
-  Master servers for Quake 3 based games, Quake 2 and QuakeWorld, keeping
-  their server lists in memory. See README.md.
+  Master servers for Quake 3 based games, Quake 2, QuakeWorld, GameSpy's
+  games and Unreal Tournament 2004, keeping their server lists in memory.
+  See README.md.
   """
 
   alias Exmaster.{Addr, Store}
@@ -12,7 +13,7 @@ defmodule Exmaster do
   @doc """
   The number of servers each master lists, in total, by game, and of those
   the ones this node lists itself rather than another. Masters are `:q3`,
-  `:q2`, `:qw` and the labels of labelled listeners.
+  `:q2`, `:qw`, `:gs`, `:ue2` and the labels of labelled listeners.
 
       bin/exmaster rpc 'IO.inspect(Exmaster.stats())'
   """
@@ -27,8 +28,8 @@ defmodule Exmaster do
   end
 
   @doc """
-  The servers a master (`:q3`, `:q2`, `:qw` or a label, such as
-  `"UrbanTerror"`) lists, sorted by address.
+  The servers a master (`:q3`, `:q2`, `:qw`, `:gs`, `:ue2` or a label,
+  such as `"UrbanTerror"`) lists, sorted by address.
   """
   def servers(master) do
     now = now()

@@ -8,6 +8,7 @@ encryption (enctype 0); Battlefield 1942 asks for enctype 2, which the
 tests cover.
 """
 import socket
+import struct
 import sys
 import time
 
@@ -94,3 +95,52 @@ def gamespy(game):
 
 for game in [b"bfield1942", b"mohaa", b"ut"]:
     print("gs %-36s %s" % ("list cmp " + game.decode(), gamespy(game)))
+
+
+def fstring(text):
+    b = text.encode("latin1") + b"\0"
+    return bytes([len(b)]) + b
+
+
+def ut2004(filters=()):
+    """UT2004's list over TCP, in frames: the master's challenge, the
+    client's CD key hashes (not checked), name and version, its
+    verification, then the query with filters (key, value, comparison);
+    a frame with the count, then one a server."""
+    s = socket.create_connection((HOST, 28902), timeout=5)
+
+    def read():
+        def exactly(n):
+            b = b""
+            while len(b) < n:
+                chunk = s.recv(n - len(b))
+                if not chunk:
+                    raise EOFError
+                b += chunk
+            return b
+        (n,) = struct.unpack("<I", exactly(4))
+        return exactly(n)
+
+    def write(payload):
+        s.sendall(struct.pack("<I", len(payload)) + payload)
+
+    read()
+    write(fstring("0" * 32) + fstring("0" * 32) + fstring("UT2K4CLIENT") +
+          struct.pack("<IB", 3369, 5) + fstring("int") + struct.pack("<IIIB", 0, 0, 0, 0))
+    read()
+    write(fstring("0" * 32))
+    read()
+    write(b"\0" + bytes([len(filters)]) +
+          b"".join(fstring(k) + fstring(v) + bytes([op]) for k, v, op in filters))
+    (count,) = struct.unpack("<I", read()[:4])
+    out = []
+    for _ in range(count):
+        e = read()
+        out.append("%d.%d.%d.%d:%d" % (*e[:4], struct.unpack("<H", e[4:6])[0]))
+    time.sleep(3.5)
+    return out
+
+
+for name, filters in [("all", ()), ("gametype = xDeathMatch", [("gametype", "xDeathMatch", 0)]),
+                      ("gametype = xCTFGame", [("gametype", "xCTFGame", 0)])]:
+    print("ue2 %-35s %s" % ("list " + name, ut2004(filters)))
