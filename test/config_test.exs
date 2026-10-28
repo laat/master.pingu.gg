@@ -63,7 +63,14 @@ defmodule Exmaster.ConfigTest do
   end
 
   test "a q2 and a gs listener on one address and port share a socket" do
-    q2gs = [protocol: Exmaster.Q2GS, ip: nil, port: 27900, label: nil, store: :exmaster_q2]
+    q2gs = [
+      protocol: Exmaster.Shared,
+      ip: nil,
+      port: 27900,
+      label: nil,
+      store: :exmaster_q2,
+      masters: [Exmaster.Q2.Master, Exmaster.GS.Master]
+    ]
 
     assert Config.listeners!("q3:27950,gs:27900,gsl:28900,q2:27900") == [
              [
@@ -92,6 +99,26 @@ defmodule Exmaster.ConfigTest do
 
     assert [[protocol: Exmaster.Q2.Master] ++ _, [protocol: Exmaster.GS.Master] ++ _] =
              Config.listeners!("q2:27900,gs:27901")
+
+    # QR2 too, with either or both, named in a fixed order.
+    assert [[protocol: Exmaster.Shared] ++ shared, [protocol: Exmaster.SB.ListServer] ++ _] =
+             Config.listeners!("qr2:27900,gs:27900,sb:28910,q2:27900")
+
+    assert shared[:masters] == [Exmaster.Q2.Master, Exmaster.GS.Master, Exmaster.QR2.Master]
+
+    assert [[protocol: Exmaster.Shared] ++ shared] = Config.listeners!("qr2:27900,gs:27900")
+    assert shared[:masters] == [Exmaster.GS.Master, Exmaster.QR2.Master]
+
+    assert [
+             [
+               protocol: Exmaster.QR2.Master,
+               ip: nil,
+               port: 27900,
+               label: nil,
+               store: :exmaster_qr2
+             ]
+           ] =
+             Config.listeners!("qr2:27900")
   end
 
   test "each label has a store, shared by its listeners" do
@@ -102,6 +129,7 @@ defmodule Exmaster.ConfigTest do
              {:q2, :exmaster_q2},
              {:qw, :exmaster_qw},
              {:gs, :exmaster_gs},
+             {:qr2, :exmaster_qr2},
              {:ue2, :exmaster_ue2},
              {"UrbanTerror", :exmaster_q3_UrbanTerror}
            ]
@@ -111,6 +139,8 @@ defmodule Exmaster.ConfigTest do
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("qw:[::]:27000") end
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("gsl:[::]:28900") end
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("ue2:[::]:28902") end
+    assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("qr2:[::]:27900") end
+    assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("sb:[::]:28910") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("ue2:28902=x") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("q2:27900=Q2") end
 

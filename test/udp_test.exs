@@ -9,7 +9,9 @@ defmodule Exmaster.UDPTest do
   @localhost {127, 0, 0, 1}
 
   setup do
-    for s <- [:exmaster_q3, :exmaster_q2, :exmaster_qw, :exmaster_gs], do: Store.clear(s)
+    for s <- [:exmaster_q3, :exmaster_q2, :exmaster_qw, :exmaster_gs, :exmaster_qr2],
+        do: Store.clear(s)
+
     RateLimit.clear()
     :ok
   end
@@ -109,7 +111,7 @@ defmodule Exmaster.UDPTest do
   end
 
   test "Quake 2 and GameSpy on one socket, and the All-Seeing Eye's heartbeat dropped" do
-    port = listen(Exmaster.Q2GS)
+    port = listen(Exmaster.Shared, masters: [Exmaster.Q2.Master, Exmaster.GS.Master])
     q2 = socket()
     gs = socket()
     client = socket()
@@ -154,6 +156,32 @@ defmodule Exmaster.UDPTest do
     :ok = :gen_udp.send(client, @localhost, port, "query\n")
     assert decode_ipv4_lists([recv(client)], "servers ") == [{@localhost, port_of(q2)}]
     assert {:error, :timeout} = :gen_udp.recv(gs, 0, 100)
+  end
+
+  test "QR2 on the socket Quake 2 and GameSpy share: available, heartbeat, challenge, reply" do
+    masters = [Exmaster.Q2.Master, Exmaster.GS.Master, Exmaster.QR2.Master]
+    port = listen(Exmaster.Shared, masters: masters)
+    bfv = socket()
+    check = socket()
+    key = <<0xD3, 0xB7, 0x54, 0xD5>>
+
+    :ok = :gen_udp.send(check, @localhost, port, <<9, 0::32, "bfvietnam", 0>>)
+    assert recv(check) == <<0xFE, 0xFD, 9, 0::32>>
+
+    keys = [gamename: "bfvietnam", hostname: "exmaster test", statechanged: "3"]
+    hb = for {k, v} <- keys, into: <<3, key::binary>>, do: "#{k}\0#{v}\0"
+    :ok = :gen_udp.send(bfv, @localhost, port, hb <> <<0, 0, 0>>)
+    <<0xFE, 0xFD, 1, ^key::binary-4, challenge::binary-20, 0>> = recv(bfv)
+
+    response = Exmaster.GS.validate(challenge, "h2P9dJ")
+    :ok = :gen_udp.send(bfv, @localhost, port, <<1, key::binary, response::binary, 0>>)
+    assert recv(bfv) == <<0xFE, 0xFD, 0x0A, key::binary>>
+
+    assert [{{@localhost, bfv_port}, %{hostname: "exmaster test"}}] =
+             Store.all(:exmaster_qr2, Exmaster.now())
+
+    assert bfv_port == port_of(bfv)
+    assert Store.all(:exmaster_gs, Exmaster.now()) == []
   end
 
   test "QuakeWorld: heartbeat, status, reply, c" do

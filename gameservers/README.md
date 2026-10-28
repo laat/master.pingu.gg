@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs seventeen game servers from LinuxGSM's images
+`docker-compose.yml` runs eighteen game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -10,6 +10,7 @@ which install the original server binaries and game data:
 | `q2` | id's quake2 3.20 | 27910 | 127.0.0.1:27900 |
 | `qw` | nQuake's MVDSV 0.32 with KTX | 27500 | 127.0.0.1:27000 |
 | `bf1942` | DICE's bf1942_lnxded 1.61, patched to 1.612 | 14567, queries 23000 | 127.0.0.1:27900, lists TCP 28900 |
+| `bfv` | DICE's bfv_linded 1.21 | 15567, queries 23100 | 127.0.0.1:27900 (QR2), lists TCP 28910 |
 | `mohaa` | mohaa_lnxded 1.12 with the Reborn patch RC3.5.1 | 12203, queries 12300 | 127.0.0.1:27900, lists TCP 28900 |
 | `rtcw` | iortcw's iowolfded | 27961 | 127.0.0.1:27950 |
 | `wet` | id's etded 2.60b | 27962 | 127.0.0.1:27950 |
@@ -25,12 +26,14 @@ which install the original server binaries and game data:
 | `ut2k4` | Epic's ucc-bin 3369 | 7757, queries 7758 | TCP 127.0.0.1:28902 |
 
 They use host networking and heartbeat exmaster on loopback only. The
-GameSpy master shares 127.0.0.1:27900 with Quake 2's, on one socket (see
-[Sharing port 27900](../docs/gamespy.md#sharing-port-27900)): Battlefield
-1942 and MOH:AA can't heartbeat another port.
+GameSpy and QR2 masters share 127.0.0.1:27900 with Quake 2's, on one
+socket (see [Sharing port 27900](../docs/gamespy.md#sharing-port-27900)):
+Battlefield 1942, Battlefield Vietnam and MOH:AA can't heartbeat another
+port.
 
 ```
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.1:27900,gsl:127.0.0.1:28900,\
+qr2:127.0.0.1:27900,sb:127.0.0.1:28910,\
 q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2,\
 ue2:127.0.0.1:28902 \
   elixir --sname exmaster -S mix run --no-halt
@@ -44,6 +47,7 @@ quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
 quakestat -gsm,bfield1942 127.0.0.1:28900
 quakestat -gsm,mohaa 127.0.0.1:28900
 quakestat -gsm,ut 127.0.0.1:28900
+quakestat -gs2 127.0.0.1:23100      # Battlefield Vietnam itself; query.py asks its master
 quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
@@ -51,14 +55,16 @@ docker compose -f gameservers/docker-compose.yml down
 ```
 
 Server files are kept in `data/` (ignored by git): about 1.3 GB for the
-Quake servers, 170 MB for Battlefield 1942, 3 GB for MOH:AA, 3.6 GB for
+Quake servers, 170 MB for Battlefield 1942, 250 MB for Battlefield
+Vietnam, 3 GB for MOH:AA, 3.6 GB for
 RTCW, ET, ET: Legacy, Xonotic and Warfork together, 420 MB for Unreal
 Tournament and 5.7 GB for UT2004. The image installs a game only into an
 empty `serverfiles`. q3, q2 and qw mount a config there, and Battlefield
-1942, Unreal Tournament and UT2004 read theirs from there, so `run.sh`
-installs those six first, with only `/data` mounted, whenever their
-executable is missing, then puts Battlefield 1942's config in place,
-rewrites Unreal Tournament's and writes UT2004's before they start. The others mount only their
+1942, Battlefield Vietnam, Unreal Tournament and UT2004 read theirs from
+there, so `run.sh` installs those seven first, with only `/data` mounted,
+whenever their executable is missing, then puts the Battlefields'
+configs in place, rewrites Unreal Tournament's and writes UT2004's before
+they start. The others mount only their
 LinuxGSM instance config, which is outside `serverfiles`, and the image
 installs them as they first start.
 
@@ -92,6 +98,17 @@ own from `config/` instead:
   config sets `game.serverIP 127.0.0.1`, which binds the game and
   All-Seeing Eye ports; its GameSpy query port, 23000, listens on 0.0.0.0
   whatever it says.
+- Battlefield Vietnam heartbeats `bfvietnam.master.gamespy.com` and
+  checks `bfvietnam.available.gamespy.com` (QR2), and names
+  `gamestats.gamespy.com` and the All-Seeing Eye's masters, none of which
+  resolve any more. `extra_hosts` points the first two at exmaster on
+  127.0.0.1 and the others at 127.0.0.3. LinuxGSM's config is LAN only
+  (`game.serverInternet 0`) and on Battlefield 1942's ports, so its config
+  here heartbeats, binds 127.0.0.1, and moves to 23100 for queries and
+  14790 for the All-Seeing Eye; the query port listens on 0.0.0.0 all the
+  same. Its instance config sets `ip` and `querymode="1"`: LinuxGSM's
+  monitor's gamedig query failed at 127.0.0.1, then tried the host's
+  public address, and without `ip` it queried the host's LAN address.
 - MOH:AA heartbeats `master.gamespy.com` only; the Reborn patch's
   `mohmaster.2015.com` and GameSpy's `master0` and `master1`, named in its
   config, aren't contacted, and none of them resolve. `extra_hosts` points
@@ -148,14 +165,14 @@ send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758) and not host 127.0.0.1 and not host ::1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758 or port 15567 or port 23100) and not host 127.0.0.1 and not host ::1'
 ```
 
-LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
-MOH:AA with gamedig (qstat can), and queries ET and ET: Legacy on 27960,
-the port it takes from their server configs. It restarts a server after
-five failures, every three minutes or so, so `querymode="1"` has it
-check the process only for those six. Separately, as a container
+LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942,
+Battlefield Vietnam (on loopback) or MOH:AA with gamedig (qstat can), and
+queries ET and ET: Legacy on 27960, the port it takes from their server
+configs. It restarts a server after five failures, every three minutes or
+so, so `querymode="1"` has it check the process only for those seven. Separately, as a container
 starts, the monitor can race the image's own start and run the server a
 second time, until it finds two a minute later and restarts it:
 Battlefield 1942's second ran on 23001, and exmaster listed it until it
@@ -297,3 +314,26 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   config needs no `querymode`. On the container's first start the
   monitor raced the image's start, as above, and restarted it a minute
   later.
+
+## What it showed for Battlefield Vietnam (2026-10-28)
+
+- Against a master that logged every packet: an available check from a
+  port of its own, then from the query port a heartbeat with
+  `statechanged 3` (49 keys, about 1 KB), a keepalive, and the response
+  to the challenge, which `Exmaster.GS.validate/2` with `h2P9dJ` matched.
+  Then a heartbeat every 60 seconds, each answered when challenged, and
+  keepalives every 20. A second instance, from LinuxGSM's monitor race,
+  ran on 23101 and sent `statechanged 2` when the monitor stopped it.
+- Against exmaster, with `q2`, `gs` and `qr2` on one socket ("Quake 2,
+  GameSpy and QR2 master listening on inet port 27900"), it was verified
+  on its first heartbeat. `query.py`'s server browsing client got the
+  list, decrypted, asking as `bfvietnam` and as `gslive`, with the fields
+  it asked for; a game exmaster doesn't list got its error. qstat
+  (`-gs2`) queried the server at the listed address. The client had
+  decrypted OpenSpy's list of 11 servers first.
+- Each heartbeat had it asked again: its expiry went from 841 seconds left
+  to 895 a minute later. Stopping the container sent `statechanged 2`,
+  and exmaster dropped it 59 seconds later: the minute after the last
+  question, then 10 seconds to answer. A new container's instance, with a
+  new instance key, was listed again before the old one's check ended.
+- No traffic left loopback from its ports, with `querymode="1"`.

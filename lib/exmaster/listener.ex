@@ -49,12 +49,13 @@ defmodule Exmaster.Listener do
           port: port,
           label: Keyword.get(opts, :label),
           store: Keyword.get(opts, :store, protocol.store()),
+          masters: Keyword.get(opts, :masters, []),
           challenge_ttl: Application.fetch_env!(:exmaster, :challenge_ttl),
           server_ttl: Application.fetch_env!(:exmaster, :server_ttl)
         }
 
         Logger.info(
-          "#{protocol.name()} master listening on #{family} port #{port}" <>
+          "#{name(protocol, ctx)} master listening on #{family} port #{port}" <>
             if(ctx.label, do: ", label #{ctx.label}", else: "")
         )
 
@@ -72,6 +73,14 @@ defmodule Exmaster.Listener do
       {:error, reason} ->
         {:stop, {:listen, protocol.name(), ip, Keyword.get(opts, :port), reason}}
     end
+  end
+
+  # A shared socket is named for its masters: "Quake 2 and GameSpy".
+  defp name(protocol, %{masters: []}), do: protocol.name()
+
+  defp name(_protocol, %{masters: masters}) do
+    {last, rest} = masters |> Enum.map(& &1.name()) |> List.pop_at(-1)
+    if rest == [], do: last, else: Enum.join(rest, ", ") <> " and " <> last
   end
 
   defp open(family, ip, port) do

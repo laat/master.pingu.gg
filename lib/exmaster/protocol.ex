@@ -7,7 +7,8 @@ defmodule Exmaster.Protocol do
 
   ctx has the listener's `:id`, the local address it is bound to (two
   listeners can share a port on different addresses), its `:port`, its
-  `:label`, the `:store` and the `:challenge_ttl` and `:server_ttl`. Times
+  `:label`, the `:store`, the `:masters` on a shared socket
+  (`Exmaster.Shared`) and the `:challenge_ttl` and `:server_ttl`. Times
   are `Exmaster.now/0`.
   """
 
@@ -16,6 +17,7 @@ defmodule Exmaster.Protocol do
           port: :inet.port_number(),
           label: String.t() | nil,
           store: atom,
+          masters: [module],
           challenge_ttl: pos_integer,
           server_ttl: pos_integer
         }

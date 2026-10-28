@@ -62,6 +62,22 @@ services:
     volumes:
       - ./data/bf1942:/data
       - ./config/bf1942server.cfg:/data/config-lgsm/bf1942server/bf1942server.cfg:ro
+  bfv:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:bfv
+    container_name: exmaster-bfv
+    # Its QR2 masters, to exmaster on 127.0.0.1:27900; its stats server and
+    # All-Seeing Eye masters, to 127.0.0.3, where nothing listens. run.sh
+    # installs it and puts its config in place, as for BF1942.
+    extra_hosts:
+      - bfvietnam.available.gamespy.com:127.0.0.1
+      - bfvietnam.master.gamespy.com:127.0.0.1
+      - gamestats.gamespy.com:127.0.0.3
+      - master.udpsoft.com:127.0.0.3
+      - master2.udpsoft.com:127.0.0.3
+    volumes:
+      - ./data/bfv:/data
+      - ./config/bfvserver.cfg:/data/config-lgsm/bfvserver/bfvserver.cfg:ro
   mohaa:
     <<: *server
     image: ghcr.io/gameservermanagers/gameserver:mohaa

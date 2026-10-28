@@ -5,8 +5,10 @@
 Queries go 3.5 seconds apart, under exmaster's per-IP limit of 5 at once
 then one every 3 seconds. The GameSpy list is asked for without
 encryption (enctype 0); Battlefield 1942 asks for enctype 2, which the
-tests cover.
+tests cover. The QR2 list (server browsing) is always encrypted; the
+client here decrypts OpenSpy's lists too.
 """
+import os
 import socket
 import struct
 import sys
@@ -144,3 +146,164 @@ def ut2004(filters=()):
 for name, filters in [("all", ()), ("gametype = xDeathMatch", [("gametype", "xDeathMatch", 0)]),
                       ("gametype = xCTFGame", [("gametype", "xCTFGame", 0)])]:
     print("ue2 %-35s %s" % ("list " + name, ut2004(filters)))
+
+
+class GOACrypt:
+    """GameSpy's list cipher, from its SDK's sb_crypt.c; decrypting only."""
+
+    def __init__(self, key):
+        c = list(range(256))
+        rsum, keypos = 0, 0
+        for i in range(255, -1, -1):
+            if i == 0:
+                u = 0
+            else:
+                mask, tries = 1, 0
+                while mask < i:
+                    mask = (mask << 1) + 1
+                while True:
+                    rsum = (c[rsum] + key[keypos]) & 0xFF
+                    keypos += 1
+                    if keypos >= len(key):
+                        keypos, rsum = 0, (rsum + len(key)) & 0xFF
+                    u = mask & rsum
+                    tries += 1
+                    if tries > 11:
+                        u %= i
+                    if u <= i:
+                        break
+            c[i], c[u] = c[u], c[i]
+        self.c = c
+        self.rotor, self.ratchet, self.avalanche, self.last_plain = c[1], c[3], c[5], c[7]
+        self.last_cipher = c[rsum]
+
+    def decrypt(self, data):
+        c, out = self.c, bytearray()
+        for b in data:
+            self.ratchet = (self.ratchet + c[self.rotor]) & 0xFF
+            self.rotor = (self.rotor + 1) & 0xFF
+            t = c[self.last_cipher]
+            c[self.last_cipher] = c[self.ratchet]
+            c[self.ratchet] = c[self.last_plain]
+            c[self.last_plain] = c[self.rotor]
+            c[self.rotor] = t
+            self.avalanche = (self.avalanche + c[t]) & 0xFF
+            p = b ^ c[(c[self.avalanche] + c[self.rotor]) & 0xFF] ^ \
+                c[c[(c[self.last_plain] + c[self.last_cipher] + c[self.ratchet]) & 0xFF]]
+            self.last_plain, self.last_cipher = p, b
+            out.append(p)
+        return bytes(out)
+
+
+def server_browsing(game, fields, from_game, from_key, host=HOST, port=28910):
+    """A QR2 game's list over TCP, as GameSpy's SDK asks for it
+    (sb_serverlist.c): a request with an 8-byte challenge, then the
+    master's crypt header and the list, encrypted under a key made of the
+    challenge, the master's and the asking game's secret key. Returns the
+    servers as (address, {field: value}), and closes once the list ends."""
+    challenge = bytearray(os.urandom(8))
+    req = (bytes([0, 1, 3]) + struct.pack("<I", 0) + game + b"\0" + from_game + b"\0" +
+           bytes(challenge) + b"\0" + fields + b"\0" + struct.pack(">I", 0))
+    s = socket.create_connection((host, port), timeout=5)
+    s.sendall(struct.pack(">H", len(req) + 2) + req)
+    data, plain, crypt = b"", b"", None
+    while True:
+        chunk = s.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+        if crypt is None:
+            if len(data) < 1 or len(data) < (data[0] ^ 0xEC) + 2:
+                continue
+            n = data[0] ^ 0xEC
+            m = data[n + 1] ^ 0xEA
+            if len(data) < n + 2 + m:
+                continue
+            server_challenge = data[n + 2:n + 2 + m]
+            for i in range(m):
+                j = (i * from_key[i % len(from_key)]) % 8
+                challenge[j] ^= (challenge[i % 8] ^ server_challenge[i]) & 0xFF
+            crypt = GOACrypt(bytes(challenge))
+            data = data[n + 2 + m:]
+        plain += crypt.decrypt(data)
+        data = b""
+        servers = parse_list(plain)
+        if servers is not None:
+            s.close()
+            return servers
+    raise EOFError("the list didn't end")
+
+
+def parse_list(b):
+    """The servers in a decrypted list, or None if it hasn't all come.
+    Any read can end inside a record, so a short field means wait. The
+    fields are the ones the list names, as the SDK reads them."""
+    try:
+        i = 6
+        if b[4:6] == b"\xff\xff":
+            raise ValueError("master's error: %r" % b[6:].split(b"\0")[0])
+        default_port = struct.unpack(">H", b[4:6])[0]
+        nfields = b[i]
+        i += 1
+        types, names = [], []
+        for _ in range(nfields):
+            types.append(b[i])
+            j = b.index(b"\0", i + 1)
+            names.append(b[i + 1:j])
+            i = j + 1
+        npopular = b[i]
+        i += 1
+        popular = []
+        for _ in range(npopular):
+            j = b.index(b"\0", i)
+            popular.append(b[i:j])
+            i = j + 1
+        servers = []
+        while True:
+            flags = b[i]
+            if flags == 0 and b[i + 1:i + 5] == b"\xff\xff\xff\xff":
+                return servers
+            ip = socket.inet_ntoa(b[i + 1:i + 5])
+            i += 5
+            port = default_port
+            if flags & 16:
+                port = struct.unpack(">H", b[i:i + 2])[0]
+                i += 2
+            if flags & 2:
+                i += 4
+            if flags & 32:
+                i += 2
+            if flags & 8:
+                i += 4
+            values = {}
+            if flags & 64:
+                for name, t in zip(names, types):
+                    if t == 0:
+                        if b[i] == 0xFF:
+                            j = b.index(b"\0", i + 1)
+                            values[name.decode()] = b[i + 1:j].decode("latin1")
+                            i = j + 1
+                        else:
+                            values[name.decode()] = popular[b[i]].decode("latin1")
+                            i += 1
+                    elif t == 1:
+                        values[name.decode()] = str(b[i])
+                        i += 1
+                    else:
+                        values[name.decode()] = str(struct.unpack(">H", b[i:i + 2])[0])
+                        i += 2
+            servers.append(("%s:%s" % (ip, port), values))
+    except (IndexError, OSError, struct.error):
+        return None
+    except ValueError as e:
+        if "master's error" in str(e):
+            raise
+        return None
+
+
+for game, from_game, key in [(b"bfvietnam", b"bfvietnam", b"h2P9dJ"),
+                             (b"bfvietnam", b"gslive", b"Xn221z")]:
+    servers = server_browsing(game, b"\\hostname\\gamever\\numplayers\\maxplayers\\mapname",
+                              from_game, key)
+    print("sb %-36s %s" % ("%s, asked as %s" % (game.decode(), from_game.decode()), servers))
+    time.sleep(3.5)

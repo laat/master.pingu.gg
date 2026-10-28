@@ -2,12 +2,13 @@ defmodule Exmaster.Config do
   @moduledoc """
   Parses the `listen` setting (`EXMASTER_LISTEN`): comma-separated
   `protocol:[host:]port[=label]`, where protocol is `q3`, `q2`, `qw`, `gs`
-  (GameSpy heartbeats, UDP), `gsl` (GameSpy lists, TCP) or `ue2` (Unreal
+  (GameSpy heartbeats, UDP), `gsl` (GameSpy lists, TCP), `qr2` (GameSpy
+  QR2 heartbeats, UDP), `sb` (GameSpy QR2 lists, TCP) or `ue2` (Unreal
   Tournament 2004, TCP).
 
       q3:27950,q2:27900,qw:27000,q3:27960=UrbanTerror,q3:27961=SmokinGuns
       q3:[::1]:27950,q2:127.0.0.1:27900,gs:127.0.0.2:27900,gsl:127.0.0.2:28900
-      ue2:28902
+      qr2:27900,sb:28910,ue2:28902
 
   A label is for Quake 3 listeners only. A labelled listener is a master of
   its own, for one game: it lists its servers in a store of its own,
@@ -15,8 +16,9 @@ defmodule Exmaster.Config do
   `docs/quake3.md`. Quake 2, QuakeWorld, GameSpy and UT2004 lists only
   hold IPv4, so their host can't be IPv6.
 
-  A `q2` and a `gs` listener on the same address and port share one
-  socket, `Exmaster.Q2GS`: both games heartbeat UDP 27900.
+  Two or three `q2`, `gs` and `qr2` listeners on the same address and
+  port share one socket, `Exmaster.Shared`: their games all heartbeat UDP
+  27900.
   """
 
   @protocols %{
@@ -25,6 +27,8 @@ defmodule Exmaster.Config do
     "qw" => Exmaster.QW.Master,
     "gs" => Exmaster.GS.Master,
     "gsl" => Exmaster.GS.ListServer,
+    "qr2" => Exmaster.QR2.Master,
+    "sb" => Exmaster.SB.ListServer,
     "ue2" => Exmaster.UE2.Master
   }
 
@@ -58,37 +62,41 @@ defmodule Exmaster.Config do
     end
   end
 
-  # A q2 and a gs listener on one address and port become one listener,
-  # where the first of them was.
-  @shared [Exmaster.GS.Master, Exmaster.Q2.Master]
-
+  # Two or three q2, gs and qr2 listeners on one address and port become
+  # one listener, where the first of them was.
   defp share(listeners) do
-    pairs =
+    shared = Exmaster.Shared.masters()
+
+    groups =
       listeners
-      |> Enum.filter(&(&1[:protocol] in @shared and &1[:port] != 0))
+      |> Enum.filter(&(&1[:protocol] in shared and &1[:port] != 0))
       |> Enum.group_by(&{&1[:ip], &1[:port]}, & &1[:protocol])
-      |> Map.filter(fn {_, protocols} -> Enum.sort(protocols) == @shared end)
+      |> Map.new(fn {at, protocols} -> {at, Enum.filter(shared, &(&1 in protocols))} end)
+      |> Map.filter(fn {_, masters} -> length(masters) > 1 end)
 
     listeners
     |> Enum.map(fn l ->
-      if l[:protocol] in @shared and Map.has_key?(pairs, {l[:ip], l[:port]}),
+      masters = l[:protocol] in shared && Map.get(groups, {l[:ip], l[:port]})
+
+      if masters,
         do: [
-          protocol: Exmaster.Q2GS,
+          protocol: Exmaster.Shared,
           ip: l[:ip],
           port: l[:port],
           label: nil,
-          store: Exmaster.Q2GS.store()
+          store: Exmaster.Shared.store(),
+          masters: masters
         ],
         else: l
     end)
     |> Enum.uniq_by(
-      &if(&1[:protocol] == Exmaster.Q2GS, do: {&1[:ip], &1[:port]}, else: make_ref())
+      &if(&1[:protocol] == Exmaster.Shared, do: {&1[:ip], &1[:port]}, else: make_ref())
     )
   end
 
   @doc """
   The stores the listeners list into, as `{name, store}`: `:q3`, `:q2`,
-  `:qw`, `:gs` and `:ue2` always, and a label for each labelled
+  `:qw`, `:gs`, `:qr2` and `:ue2` always, and a label for each labelled
   listener's.
   """
   def stores(listeners) do
@@ -97,6 +105,7 @@ defmodule Exmaster.Config do
       q2: Exmaster.Q2.Master.store(),
       qw: Exmaster.QW.Master.store(),
       gs: Exmaster.GS.Master.store(),
+      qr2: Exmaster.QR2.Master.store(),
       ue2: Exmaster.UE2.Master.store()
     ]
 
