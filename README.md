@@ -1,4 +1,4 @@
-# exmaster
+# master.pingu.gg
 
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2 and
 QuakeWorld. Game servers heartbeat it and clients ask it for server lists.
