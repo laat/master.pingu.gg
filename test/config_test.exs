@@ -33,6 +33,23 @@ defmodule Exmaster.ConfigTest do
              Config.listeners!("q3:[::1]:27950")
 
     assert Config.listeners!("") == []
+
+    assert Config.listeners!("gs:27900,gsl:127.0.0.1:28900") == [
+             [
+               protocol: Exmaster.GS.Master,
+               ip: nil,
+               port: 27900,
+               label: nil,
+               store: :exmaster_gs
+             ],
+             [
+               protocol: Exmaster.GS.ListServer,
+               ip: {127, 0, 0, 1},
+               port: 28900,
+               label: nil,
+               store: :exmaster_gs
+             ]
+           ]
   end
 
   test "each label has a store, shared by its listeners" do
@@ -42,12 +59,14 @@ defmodule Exmaster.ConfigTest do
              {:q3, :exmaster_q3},
              {:q2, :exmaster_q2},
              {:qw, :exmaster_qw},
+             {:gs, :exmaster_gs},
              {"UrbanTerror", :exmaster_q3_UrbanTerror}
            ]
   end
 
   test "bad specs" do
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("qw:[::]:27000") end
+    assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("gsl:[::]:28900") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("q2:27900=Q2") end
 
     for bad <- ["q4:27950", "q3", "q3:x", "q3:70000", "q3:27950=bad label", "q3:nohost:1"] do

@@ -1,19 +1,26 @@
 defmodule Exmaster.Config do
   @moduledoc """
   Parses the `listen` setting (`EXMASTER_LISTEN`): comma-separated
-  `protocol:[host:]port[=label]`, where protocol is `q3`, `q2` or `qw`.
+  `protocol:[host:]port[=label]`, where protocol is `q3`, `q2`, `qw`, `gs`
+  (GameSpy heartbeats, UDP) or `gsl` (GameSpy lists, TCP).
 
       q3:27950,q2:27900,qw:27000,q3:27960=UrbanTerror,q3:27961=SmokinGuns
-      q3:[::1]:27950,q2:127.0.0.1:27900
+      q3:[::1]:27950,q2:127.0.0.1:27900,gs:127.0.0.2:27900,gsl:127.0.0.2:28900
 
   A label is for Quake 3 listeners only. A labelled listener is a master of
   its own, for one game: it lists its servers in a store of its own,
   shared with the listeners that have the same label. See "Listeners" in
-  `docs/quake3.md`. Quake 2 and QuakeWorld lists only hold IPv4, so their
-  host can't be IPv6.
+  `docs/quake3.md`. Quake 2, QuakeWorld and GameSpy lists only hold IPv4,
+  so their host can't be IPv6.
   """
 
-  @protocols %{"q3" => Exmaster.Q3.Master, "q2" => Exmaster.Q2.Master, "qw" => Exmaster.QW.Master}
+  @protocols %{
+    "q3" => Exmaster.Q3.Master,
+    "q2" => Exmaster.Q2.Master,
+    "qw" => Exmaster.QW.Master,
+    "gs" => Exmaster.GS.Master,
+    "gsl" => Exmaster.GS.ListServer
+  }
 
   def listeners!(spec) do
     spec
@@ -45,16 +52,21 @@ defmodule Exmaster.Config do
   end
 
   @doc """
-  The stores the listeners list into, as `{name, store}`: `:q3`, `:q2` and
-  `:qw` always, and a label for each labelled listener's.
+  The stores the listeners list into, as `{name, store}`: `:q3`, `:q2`,
+  `:qw` and `:gs` always, and a label for each labelled listener's.
   """
   def stores(listeners) do
-    base = for p <- [Exmaster.Q3.Master, Exmaster.Q2.Master, Exmaster.QW.Master], do: p.store()
+    base = [
+      q3: Exmaster.Q3.Master.store(),
+      q2: Exmaster.Q2.Master.store(),
+      qw: Exmaster.QW.Master.store(),
+      gs: Exmaster.GS.Master.store()
+    ]
 
     labelled =
       for l <- listeners, l[:label] != nil, uniq: true, do: {l[:label], l[:store]}
 
-    Enum.zip([:q3, :q2, :qw], base) ++ labelled
+    base ++ labelled
   end
 
   defp store(protocol, nil), do: protocol.store()
@@ -85,7 +97,7 @@ defmodule Exmaster.Config do
 
     cond do
       not q3 and ip != nil and tuple_size(ip) == 8 ->
-        {:error, "Quake 2 and QuakeWorld lists are IPv4 only"}
+        {:error, "Quake 2, QuakeWorld and GameSpy lists are IPv4 only"}
 
       label == nil ->
         :ok
