@@ -278,7 +278,7 @@ defmodule Exmaster.QR2.Master do
   # reach it: localip0 and localport.
   defp local(info) do
     ip =
-      case :inet.parse_ipv4strict_address(String.to_charlist(Map.get(info, "localip0", ""))) do
+      case :inet.parse_ipv4strict_address(:binary.bin_to_list(Map.get(info, "localip0", ""))) do
         {:ok, ip} -> ip
         _ -> nil
       end
@@ -356,8 +356,11 @@ defmodule Exmaster.QR2.Master do
 
     state =
       Enum.reduce(done, %{state | checks: checks}, fn {addr, at}, state ->
-        Store.drop_unless_seen(ctx.store, addr, at, ctx.id)
-        %{state | deferred: Map.delete(state.deferred, addr)}
+        # A poll put off while the check was out stays, if the server does.
+        case Store.drop_unless_seen(ctx.store, addr, at, ctx.id) do
+          {:dropped, _} -> %{state | deferred: Map.delete(state.deferred, addr)}
+          :kept -> state
+        end
       end)
 
     {due, deferred} = Map.split_with(state.deferred, fn {_, {at, _}} -> at <= now end)

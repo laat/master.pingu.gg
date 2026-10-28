@@ -178,6 +178,29 @@ defmodule Exmaster.QR2.MasterTest do
     assert Store.lookup(:exmaster_qr2, @server, 140_000) == nil
   end
 
+  test "a poll put off while an exit check is out stays, if the server answers the check", %{
+    ctx: ctx,
+    state: state
+  } do
+    state = register(ctx, state)
+    # A forged exit, which the server answers; then its own heartbeat, put
+    # off to the minute's end.
+    {sends, state} = heartbeat(ctx, state, 61_000, statechanged: "2")
+    {[_], state} = answer(ctx, state, challenge(sends), 61_200)
+    {[], state} = heartbeat(ctx, state, 65_000, statechanged: "1", hostname: "changed")
+    {[], state} = Master.tick(ctx, 71_000, state)
+    {sends, state} = Master.tick(ctx, 122_000, state)
+    {[_], _} = answer(ctx, state, challenge(sends), 122_100)
+    assert Store.lookup(:exmaster_qr2, @server, 122_100).hostname == "changed"
+  end
+
+  test "a local address that isn't text is no local address", %{ctx: ctx, state: state} do
+    data = <<3, @key::binary, "gamename", 0, "bfvietnam", 0, "localip0", 0, 0xFF, 0xFE, 0, 0>>
+    {sends, state} = Master.handle_packet(data, @server, ctx, 0, state)
+    {[_], _} = answer(ctx, state, challenge(sends), 0)
+    assert %{local_ip: nil} = Store.lookup(:exmaster_qr2, @server, 0)
+  end
+
   test "a restarted server, with a new instance key, is asked at once and keeps its entry", %{
     ctx: ctx,
     state: state

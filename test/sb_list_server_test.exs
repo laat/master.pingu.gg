@@ -88,6 +88,36 @@ defmodule Exmaster.SB.ListServerTest do
              <<127, 0, 0, 1, 23_000::16>>
   end
 
+  # 2,000 servers with 60-byte names: about 140 KB, three chunks, each
+  # encrypted as it goes out, the cipher carried from one to the next. A
+  # field asked for twice is sent once.
+  test "a list of several chunks", %{port: port} do
+    now = Exmaster.now()
+    name = String.duplicate("n", 60)
+
+    for i <- 0..1_999 do
+      entry = %{
+        game: "bfvietnam",
+        clients: 0,
+        fields: %{"hostname" => name},
+        local_ip: nil,
+        local_port: nil,
+        seen: now,
+        expires: now + 60_000
+      }
+
+      :ok =
+        Store.put(:exmaster_qr2, {{10, 0, div(i, 32), rem(i, 32) + 1}, 23_000}, entry, now, nil)
+    end
+
+    list = ask(port, request("bfvietnam", "bfvietnam", "\\hostname\\hostname"), "h2P9dJ")
+    assert byte_size(list) > 131_072
+    assert <<127, 0, 0, 1, 23_000::16, 1, 0, "hostname", 0, 0, rest::binary>> = list
+    record = <<0xFF, name::binary, 0>>
+    assert :binary.matches(rest, record) |> length() == 2_000
+    assert binary_part(rest, byte_size(rest), -5) == <<0, 0xFF, 0xFF, 0xFF, 0xFF>>
+  end
+
   test "a game it doesn't list, and a game asking that it doesn't know", %{port: port} do
     assert ask(port, request("nosuchgame", "bfvietnam", ""), "h2P9dJ") ==
              <<127, 0, 0, 1, 0xFF, 0xFF, "This master doesn't list nosuchgame.", 0>>

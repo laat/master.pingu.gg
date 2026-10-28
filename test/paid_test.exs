@@ -39,6 +39,14 @@ defmodule Exmaster.PaidTest do
     assert {:ok, "abcdefabcdef"} = :gen_tcp.recv(c, 12, 1_000)
   end
 
+  test "chunks from a stream, made as they are sent", %{client: c, server: s} do
+    stream = Stream.map(["ab", "cd"], fn part -> send(self(), {:made, part}) && {part, 2} end)
+    assert Paid.send(s, stream, 0, Exmaster.now() + 1_000) == :ok
+    assert_received {:made, "ab"}
+    assert_received {:made, "cd"}
+    assert {:ok, "abcd"} = :gen_tcp.recv(c, 4, 1_000)
+  end
+
   test "it waits for the budget when it is spent", %{client: c, server: s} do
     # Spend the burst, 1 MB; 64 KB more takes about a quarter second.
     :ok = RateLimit.spend_reply(1_048_576, Exmaster.now())

@@ -129,21 +129,38 @@ defmodule Exmaster.SB.ListServer do
          now = Exmaster.now(),
          {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)} do
       {header, crypt} = SB.crypt(req.challenge, key)
-      {body, count} = answer(req, req.source_ip || ip, store, now)
-      {cipher, _} = Crypt.encrypt(crypt, IO.iodata_to_binary(body))
-      Logger.debug("sb: #{req.game} list for #{:inet.ntoa(ip)}, #{count} servers")
+      {parts, count} = answer(req, req.source_ip || ip, store, now)
+      Logger.debug("sb: #{inspect(req.game)} list for #{:inet.ntoa(ip)}, #{count} servers")
       :timer.cancel(kill)
-      Paid.send(sock, Paid.chunks([header | slices(cipher)]), RateLimit.min_reply(), ends)
+
+      # The crypt header as it is, then the list a chunk at a time,
+      # encrypted as it goes, so a long list is never all encrypted at once.
+      encrypted =
+        parts
+        |> Paid.chunks()
+        |> Stream.transform(crypt, fn {chunk, size}, crypt ->
+          {cipher, crypt} = Crypt.encrypt(crypt, IO.iodata_to_binary(chunk))
+          {[{cipher, size}], crypt}
+        end)
+
+      Paid.send(
+        sock,
+        Stream.concat([{header, byte_size(header)}], encrypted),
+        RateLimit.min_reply(),
+        ends
+      )
     else
       {:budget, _} -> Logger.debug("sb: a list over the reply budget")
       _ -> :ok
     end
   end
 
+  # The answer in parts, a server's record each, for Exmaster.Paid to
+  # gather into chunks.
   defp answer(req, ip, store, now) do
     case QR2.default_port(req.game) do
       nil ->
-        {SB.error(ip, "This master doesn't list #{req.game}."), 0}
+        {[SB.error(ip, "This master doesn't list #{req.game}.")], 0}
 
       port when req.list? ->
         servers =
@@ -152,18 +169,12 @@ defmodule Exmaster.SB.ListServer do
           |> Enum.sort()
           |> then(&if(req.max, do: Enum.take(&1, req.max), else: &1))
 
-        {[SB.head(ip, port), SB.encode_list(req.fields, servers, port)], length(servers)}
+        {[SB.head(ip, port) | SB.encode_list(req.fields, servers, port)], length(servers)}
 
       port ->
-        {SB.head(ip, port), 0}
+        {[SB.head(ip, port)], 0}
     end
   end
-
-  # The encrypted list in parts of 64 KB, for Exmaster.Paid to send one
-  # at a time.
-  defp slices(<<part::binary-size(65_536), rest::binary>>), do: [part | slices(rest)]
-  defp slices(""), do: []
-  defp slices(rest), do: [rest]
 
   # Reads the request: a 2-byte length, counting itself, and the rest.
   defp read(sock, buf, deadline) do

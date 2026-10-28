@@ -207,7 +207,6 @@ def server_browsing(game, fields, from_game, from_key, host=HOST, port=28910):
     s = socket.create_connection((host, port), timeout=5)
     s.sendall(struct.pack(">H", len(req) + 2) + req)
     data, plain, crypt = b"", b"", None
-    names = [f for f in fields.split(b"\\") if f]
     while True:
         chunk = s.recv(65536)
         if not chunk:
@@ -228,25 +227,30 @@ def server_browsing(game, fields, from_game, from_key, host=HOST, port=28910):
             data = data[n + 2 + m:]
         plain += crypt.decrypt(data)
         data = b""
-        servers = parse_list(plain, names)
+        servers = parse_list(plain)
         if servers is not None:
             s.close()
             return servers
     raise EOFError("the list didn't end")
 
 
-def parse_list(b, names):
-    """The servers in a decrypted list, or None if it hasn't all come."""
+def parse_list(b):
+    """The servers in a decrypted list, or None if it hasn't all come.
+    Any read can end inside a record, so a short field means wait. The
+    fields are the ones the list names, as the SDK reads them."""
     try:
         i = 6
         if b[4:6] == b"\xff\xff":
             raise ValueError("master's error: %r" % b[6:].split(b"\0")[0])
+        default_port = struct.unpack(">H", b[4:6])[0]
         nfields = b[i]
         i += 1
-        types = []
+        types, names = [], []
         for _ in range(nfields):
             types.append(b[i])
-            i = b.index(b"\0", i + 1) + 1
+            j = b.index(b"\0", i + 1)
+            names.append(b[i + 1:j])
+            i = j + 1
         npopular = b[i]
         i += 1
         popular = []
@@ -261,7 +265,7 @@ def parse_list(b, names):
                 return servers
             ip = socket.inet_ntoa(b[i + 1:i + 5])
             i += 5
-            port = None
+            port = default_port
             if flags & 16:
                 port = struct.unpack(">H", b[i:i + 2])[0]
                 i += 2
@@ -289,7 +293,7 @@ def parse_list(b, names):
                         values[name.decode()] = str(struct.unpack(">H", b[i:i + 2])[0])
                         i += 2
             servers.append(("%s:%s" % (ip, port), values))
-    except IndexError:
+    except (IndexError, OSError, struct.error):
         return None
     except ValueError as e:
         if "master's error" in str(e):

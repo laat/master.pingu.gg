@@ -46,8 +46,8 @@ defmodule Exmaster.SB do
 
   @doc """
   A list request, from after the length: `{:ok, map}` with `:game`,
-  `:from`, `:challenge`, `:fields`, `:list?`, `:source_ip` and `:max`, or
-  `:error`. The filter is read and left: masters players use now apply
+  `:from`, `:challenge`, `:fields` (each once, 64 at most), `:list?`,
+  `:source_ip` and `:max`, or `:error`. The filter is read and left: masters players use now apply
   it, but this one lists every server, as its GameSpy master does.
   """
   def parse_request(<<0, _protocol, _encoding, _game_version::binary-4, rest::binary>>) do
@@ -66,6 +66,7 @@ defmodule Exmaster.SB do
            fields
            |> :binary.split("\\", [:global])
            |> Enum.reject(&(&1 == ""))
+           |> Enum.uniq()
            |> Enum.take(@max_fields),
          list?: (options &&& @no_server_list) == 0,
          source_ip: source_ip && ip(source_ip),
@@ -128,19 +129,15 @@ defmodule Exmaster.SB do
   def error({a, b, c, d}, message), do: <<a, b, c, d, 0xFF, 0xFF, message::binary, 0>>
 
   @doc """
-  The list after the head: the fields asked for, no popular values, a
-  record a server, the end. Values are text; a server's own port is given
-  where it isn't the game's default, its address on its own network where
-  it said one.
+  The list after the head, in parts: the fields asked for and no popular
+  values, a record a server, the end. Values are text; a server's own
+  port is given where it isn't the game's default, its address on its own
+  network where it said one.
   """
   def encode_list(fields, servers, default_port) do
-    [
-      length(fields),
-      Enum.map(fields, &[0, &1, 0]),
-      0,
-      Enum.map(servers, &record(&1, fields, default_port)),
-      <<0, 0xFF, 0xFF, 0xFF, 0xFF>>
-    ]
+    [[length(fields), Enum.map(fields, &[0, &1, 0]), 0]] ++
+      Enum.map(servers, &record(&1, fields, default_port)) ++
+      [<<0, 0xFF, 0xFF, 0xFF, 0xFF>>]
   end
 
   defp record({{{a, b, c, d}, port}, entry}, fields, default_port) do

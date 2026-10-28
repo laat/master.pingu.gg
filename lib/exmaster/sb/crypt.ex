@@ -71,15 +71,14 @@ defmodule Exmaster.SB.Crypt do
   @doc "Decrypts data: `{plaintext, state}`."
   def decrypt(state, data), do: run(state, data, :decrypt)
 
+  # The output grows as a binary, which the VM appends to in place: a list
+  # of bytes would take some 40 times the data's size.
   defp run(state, data, way) do
-    {out, state} =
-      for <<b <- data>>, reduce: {[], state} do
-        {out, s} ->
-          {c, s} = byte(s, b, way)
-          {[c | out], s}
-      end
-
-    {out |> Enum.reverse() |> :erlang.list_to_binary(), state}
+    for <<b <- data>>, reduce: {<<>>, state} do
+      {out, s} ->
+        {c, s} = byte(s, b, way)
+        {<<out::binary, c>>, s}
+    end
   end
 
   defp byte(s, b, way) do

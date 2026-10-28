@@ -36,20 +36,24 @@ defmodule Exmaster.Paid do
 
   @doc """
   Sends each chunk once the budget has paid for it, while the connection
-  hasn't ended: `:ok` or `:error`. credit is what the reservation
+  hasn't ended: `:ok` or `:error`. chunks may be a stream, so a chunk is
+  only made, encrypted say, as it is sent. credit is what the reservation
   (`RateLimit.reserve_reply/1`) has paid for already, ends when the
   connection ends, waited how long it has waited so far.
   """
-  def send(sock, chunks, credit, ends, waited \\ 0)
-  def send(_sock, [], _credit, _ends, _waited), do: :ok
-
-  def send(sock, [{chunk, size} | rest], credit, ends, waited) do
-    with {:ok, waited} <- pay(max(size - credit, 0), waited),
-         true <- Exmaster.now() < ends + waited,
-         :ok <- :gen_tcp.send(sock, chunk) do
-      send(sock, rest, max(credit - size, 0), ends, waited)
-    else
-      _ -> :error
+  def send(sock, chunks, credit, ends, waited \\ 0) do
+    Enum.reduce_while(chunks, {credit, waited}, fn {chunk, size}, {credit, waited} ->
+      with {:ok, waited} <- pay(max(size - credit, 0), waited),
+           true <- Exmaster.now() < ends + waited,
+           :ok <- :gen_tcp.send(sock, chunk) do
+        {:cont, {max(credit - size, 0), waited}}
+      else
+        _ -> {:halt, :error}
+      end
+    end)
+    |> case do
+      :error -> :error
+      _ -> :ok
     end
   end
 
