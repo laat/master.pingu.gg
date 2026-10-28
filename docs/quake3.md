@@ -58,7 +58,7 @@ The argument is a *heartbeat tag* identifying the protocol family, not the game:
 | `Wolfenstein-1`    | `wolfmp`      | `WolfFlatline-1` |
 | `EnemyTerritory-1` | `et`          | `ETFlatline-1`   |
 | `Tremulous`        | `Tremulous`   | `Tremulousdead`  |
-| `smokinguns`       | `SmokinGuns`  | `smokingunsdead` |
+| `smokinguns`       | `smokinguns`  | `smokingunsdead` |
 | `DarkPlaces`       | from `infoResponse` `gamename` | none |
 | anything else      | from `infoResponse` `gamename` | none |
 
@@ -242,7 +242,7 @@ classified without the master having stored anything:
 - **DarkPlaces**: the server must send `gamename`;
 - **unknown**: any other tag. The server must send `gamename`, can't be
   listed as a built-in game (`Quake3Arena`, `wolfmp`, `et`, `Tremulous`,
-  `SmokinGuns`) unless a listener's label says so, and there are at most
+  `smokinguns`) unless a listener's label says so, and there are at most
   `EXMASTER_MAX_UNKNOWN_TAG` (512) such servers. A made-up tag can't
   crowd out or impersonate the games that have tags of their own.
 

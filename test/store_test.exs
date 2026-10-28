@@ -143,4 +143,11 @@ defmodule Exmaster.StoreTest do
     assert [{^a, %{game: "Quake3Arena"}}] = Store.all(s, now, "Quake3Arena")
     assert Store.all(s, now, "UrbanTerror") == []
   end
+
+  test "a store's name can't clash with another's replicas" do
+    # The store of a listener labelled "replicas", next to this one.
+    name = :"store_#{System.unique_integer([:positive])}"
+    start_supervised!({Store, name: name}, id: :a)
+    start_supervised!({Store, name: :"#{name}_replicas"}, id: :b)
+  end
 end

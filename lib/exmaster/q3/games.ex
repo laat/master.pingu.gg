@@ -41,9 +41,10 @@ defmodule Exmaster.Q3.Games do
       flatline: "Tremulousdead",
       always_empty_full: false
     },
-    # Smokin' Guns 1.1 (code/qcommon/q_shared.h); protocol 68.
+    # Smokin' Guns 1.1 (code/qcommon/q_shared.h); protocol 68. Named as
+    # its servers and clients name it (GAMENAME_FOR_MASTER).
     %{
-      name: "SmokinGuns",
+      name: "smokinguns",
       protocols: [],
       heartbeat: "smokinguns",
       flatline: "smokingunsdead",

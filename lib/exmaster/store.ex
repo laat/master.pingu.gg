@@ -16,7 +16,8 @@ defmodule Exmaster.Store do
   With several nodes behind one DNS name, a game server heartbeats one of
   them and a client asks one of them, maybe another. So each store sends
   the servers it lists to the same master's store on the other nodes, which
-  keep them in a second table, `<name>_replicas`, keyed by `{addr, node}`.
+  keep them in a second table, `:"<name> replicas"`, keyed by `{addr, node}`.
+  The space keeps it apart from every store's name: a label has none.
   `all/3` answers from both; `lookup/3`, `put/5` and the limits only see
   this node's own servers, the ones its listeners ask and check.
 
@@ -118,7 +119,7 @@ defmodule Exmaster.Store do
     end)
   end
 
-  defp replicas(store), do: :"#{store}_replicas"
+  defp replicas(store), do: :"#{store} replicas"
 
   defp game_guard(nil), do: []
   defp game_guard(game), do: [{:"=:=", :"$3", game}]

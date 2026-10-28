@@ -283,8 +283,9 @@ defmodule Exmaster.Q3.Master do
           end
       end
 
+    # A label can be a built-in game's: q3:27955=et is ET's own master.
     {empty, full} =
-      case game && Games.by_name(game) do
+      case Games.by_name(game || ctx.label) do
         %{always_empty_full: true} -> {true, true}
         _ -> {q.empty, q.full}
       end
