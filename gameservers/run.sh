@@ -1,7 +1,6 @@
 #!/bin/sh
-# Starts the test servers against an exmaster on 127.0.0.1 (127.0.0.2 for
-# GameSpy) and shows the lists, from query.py and from qstat. See
-# README.md.
+# Starts the test servers against an exmaster on 127.0.0.1 and shows the
+# lists, from query.py and from qstat. See README.md.
 #
 #   run.sh [service...]     all of them by default
 set -eu
@@ -41,7 +40,7 @@ esac
 case " $services " in *" ut99 "*)
 	sed -i -e '/^ServerActors=IpServer.UdpServerUplink /d' \
 		-e '/^ServerActors=IpDrv.UdpBeacon$/d' -e '/^ServerActors=UWeb.WebServer$/d' \
-		-e 's/^ServerActors=IpServer.UdpServerQuery$/&\nServerActors=IpServer.UdpServerUplink MasterServerAddress=127.0.0.2 MasterServerPort=27900/' \
+		-e 's/^ServerActors=IpServer.UdpServerQuery$/&\nServerActors=IpServer.UdpServerUplink MasterServerAddress=127.0.0.1 MasterServerPort=27900/' \
 		-e 's/^FirstRun=.*/FirstRun=469/' -e 's/^ServerName=.*/ServerName=exmaster test/' \
 		data/ut99/serverfiles/System/ut99server.ini
 esac

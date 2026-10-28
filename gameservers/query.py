@@ -1,6 +1,6 @@
 """Asks exmaster for its lists the way game clients do, and prints them.
 
-    python3 -I query.py [host [gamespy host]]
+    python3 -I query.py [host]
 
 Queries go 3.5 seconds apart, under exmaster's per-IP limit of 5 at once
 then one every 3 seconds. The GameSpy list is asked for without
@@ -12,7 +12,6 @@ import sys
 import time
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
-GS_HOST = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.2"
 OOB = b"\xff\xff\xff\xff"
 
 
@@ -81,7 +80,7 @@ print("qw %-36s %s" % ("c", six_byte(27000, b"c\n", b"d\n")))
 def gamespy(game):
     """The list over TCP: the master's challenge, the client's hello (its
     \\validate\\ isn't checked), then \\list\\cmp, read to the close."""
-    s = socket.create_connection((GS_HOST, 28900), timeout=5)
+    s = socket.create_connection((HOST, 28900), timeout=5)
     s.recv(1024)
     s.sendall(b"\\gamename\\%s\\gamever\\2\\location\\0\\validate\\x\\enctype\\0\\final\\\\queryid\\1.1\\" % game)
     s.sendall(b"\\list\\cmp\\gamename\\%s\\final\\" % game)

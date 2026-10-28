@@ -51,12 +51,12 @@ services:
     <<: *server
     image: ghcr.io/gameservermanagers/gameserver:bf1942
     container_name: exmaster-bf1942
-    # Its GameSpy master, to exmaster on 127.0.0.2, since Quake 2's takes
-    # 127.0.0.1:27900; its All-Seeing Eye masters, to nothing. None of them
+    # Its GameSpy master, to exmaster on 127.0.0.1:27900, which it shares
+    # with Quake 2's; its All-Seeing Eye masters, to nothing. None of them
     # resolve any more. run.sh installs it and puts its config in place:
     # the image installs only into an empty serverfiles.
     extra_hosts:
-      - master.gamespy.com:127.0.0.2
+      - master.gamespy.com:127.0.0.1
       - master.udpsoft.com:127.0.0.3
       - master2.udpsoft.com:127.0.0.3
     volumes:
@@ -66,10 +66,10 @@ services:
     <<: *server
     image: ghcr.io/gameservermanagers/gameserver:mohaa
     container_name: exmaster-mohaa
-    # Its GameSpy master, to exmaster on 127.0.0.2; the masters in its
+    # Its GameSpy master, to exmaster on 127.0.0.1; the masters in its
     # config, which it doesn't contact, to 127.0.0.3, where nothing listens.
     extra_hosts:
-      - master.gamespy.com:127.0.0.2
+      - master.gamespy.com:127.0.0.1
       - master0.gamespy.com:127.0.0.3
       - master1.gamespy.com:127.0.0.3
       - mohmaster.2015.com:127.0.0.3
