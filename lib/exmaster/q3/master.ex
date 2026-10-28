@@ -175,11 +175,11 @@ defmodule Exmaster.Q3.Master do
   # carried.
   defp entry(info, old, ctx, now) do
     class = old.class
-    label = Map.get(old, :label, ctx.label)
+    label = ctx.label
     protocol = Q3.leading_int(info["protocol"])
     max_clients = Q3.int(info["sv_maxclients"])
     gametype = Map.get(info, "gametype", "0")
-    game = protocol && game_name(info, protocol, class, label)
+    game = game_name(info, class, label)
 
     cond do
       protocol == nil ->
@@ -205,7 +205,6 @@ defmodule Exmaster.Q3.Master do
          %{
            class: class,
            unknown: class == :unknown,
-           label: label,
            via: Map.get(old, :via, ctx.id),
            game: game,
            protocol: protocol,
@@ -225,20 +224,15 @@ defmodule Exmaster.Q3.Master do
   @doc """
   The game a server is listed as. In order:
 
-    1. A fingerprint, unless the server names a game that isn't built in.
-       Forks send their parent's name or none.
-    2. The listener's label: OpenArena says Quake3Arena.
-    3. gamename.
-    4. The game the heartbeat tag implies.
+    1. The listener's label: a labelled listener is a game's own master,
+       and Urban Terror says Quake3Arena or nothing.
+    2. gamename.
+    3. The game the heartbeat tag implies.
   """
-  def game_name(info, protocol, class, label) do
+  def game_name(info, class, label) do
     gamename = Map.get(info, "gamename")
 
-    fingerprint =
-      if gamename == nil or Games.builtin?(gamename), do: Games.identify(info, protocol)
-
     cond do
-      fingerprint -> fingerprint
       label -> label
       gamename -> gamename
       match?({:known, _}, class) -> elem(class, 1)
@@ -275,14 +269,19 @@ defmodule Exmaster.Q3.Master do
 
   @doc "The servers that answer a query, sorted by address."
   def match(q, ctx, now) do
-    # An anonymous query to a labelled listener asks for its label's
-    # game; one for an unknown protocol matches on protocol alone.
+    # A labelled listener has a store of its own, and every server in it
+    # is its game's, whatever name a query gives it: Smokin' Guns asks
+    # for smokinguns. An anonymous query elsewhere asks for the game of
+    # its protocol, and one for an unknown protocol matches on protocol
+    # alone.
     game =
-      q.game || ctx.label ||
-        case Games.by_protocol(q.protocol) do
-          nil -> nil
-          g -> g.name
-        end
+      if ctx.label == nil do
+        q.game ||
+          case Games.by_protocol(q.protocol) do
+            nil -> nil
+            g -> g.name
+          end
+      end
 
     {empty, full} =
       case game && Games.by_name(game) do
@@ -290,7 +289,7 @@ defmodule Exmaster.Q3.Master do
         _ -> {q.empty, q.full}
       end
 
-    for {addr, e} <- Store.all(ctx.store, now, game && Games.listed_as(game)),
+    for {addr, e} <- Store.all(ctx.store, now, game),
         speaks?(e, q.protocol, now, ctx.server_ttl),
         empty or e.clients > 0,
         full or e.clients < e.max_clients,

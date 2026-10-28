@@ -66,19 +66,19 @@ defmodule Exmaster.Store do
   end
 
   @doc """
-  `{addr, entry}` for every server that hasn't expired, of one of games if
-  given, listed by this node or another. A server two nodes list is there
+  `{addr, entry}` for every server that hasn't expired, of game if given,
+  listed by this node or another. A server two nodes list is there
   once, as the copy that expires last has it: the one from the node that
   heard from it last. That copy decides its game too.
   """
-  def all(store, now, games \\ nil) do
-    local = select(store, @local, now, games)
+  def all(store, now, game \\ nil) do
+    local = select(store, @local, now, game)
 
     if :ets.info(replicas(store), :size) == 0 do
       local
     else
-      entries = newest(local ++ select(replicas(store), @replica, now, games))
-      if games, do: drop_superseded(entries, store, now, games), else: entries
+      entries = newest(local ++ select(replicas(store), @replica, now, game))
+      if game, do: drop_superseded(entries, store, now, game), else: entries
     end
   end
 
@@ -86,8 +86,8 @@ defmodule Exmaster.Store do
   def local_count(store, now),
     do: :ets.select_count(store, [{{:_, :"$1", :_, :_}, [{:>, :"$1", now}], [true]}])
 
-  defp select(table, pattern, now, games) do
-    guards = [{:>, :"$2", now} | game_guard(games)]
+  defp select(table, pattern, now, game) do
+    guards = [{:>, :"$2", now} | game_guard(game)]
     :ets.select(table, [{pattern, guards, [{{:"$1", :"$4"}}]}])
   end
 
@@ -100,8 +100,8 @@ defmodule Exmaster.Store do
   end
 
   # Drops the servers that have a newer copy of another game.
-  defp drop_superseded(entries, store, now, games) do
-    guards = [{:>, :"$2", now}, {:not, game_match(games)}]
+  defp drop_superseded(entries, store, now, game) do
+    guards = [{:>, :"$2", now}, {:"=/=", :"$3", game}]
 
     others =
       for {table, pattern} <- [{store, @local}, {replicas(store), @replica}],
@@ -121,10 +121,7 @@ defmodule Exmaster.Store do
   defp replicas(store), do: :"#{store}_replicas"
 
   defp game_guard(nil), do: []
-  defp game_guard(games), do: [game_match(games)]
-
-  defp game_match([game]), do: {:==, :"$3", game}
-  defp game_match(games), do: List.to_tuple([:orelse | Enum.map(games, &{:==, :"$3", &1})])
+  defp game_guard(game), do: [{:"=:=", :"$3", game}]
 
   @doc """
   Adds or replaces the server at addr, if its entry is still expected (nil

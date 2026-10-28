@@ -3,12 +3,14 @@ defmodule Exmaster.Config do
   Parses the `listen` setting (`EXMASTER_LISTEN`): comma-separated
   `protocol:[host:]port[=label]`, where protocol is `q3`, `q2` or `qw`.
 
-      q3:27950,q3:27900=UrbanTerror,q2:27900,qw:27000
+      q3:27950,q2:27900,qw:27000,q3:27960=UrbanTerror,q3:27961=SmokinGuns
       q3:[::1]:27950,q2:127.0.0.1:27900
 
-  A label is for Quake 3 listeners only; see "Listeners" in
-  `docs/quake3.md`. Quake 2 and QuakeWorld lists only hold IPv4, so
-  their host can't be IPv6.
+  A label is for Quake 3 listeners only. A labelled listener is a master of
+  its own, for one game: it lists its servers in a store of its own,
+  shared with the listeners that have the same label. See "Listeners" in
+  `docs/quake3.md`. Quake 2 and QuakeWorld lists only hold IPv4, so their
+  host can't be IPv6.
   """
 
   @protocols %{"q3" => Exmaster.Q3.Master, "q2" => Exmaster.Q2.Master, "qw" => Exmaster.QW.Master}
@@ -32,7 +34,7 @@ defmodule Exmaster.Config do
          {:ok, protocol} <- Map.fetch(@protocols, name),
          {:ok, ip, port} <- hostport(hostport),
          :ok <- check(protocol, ip, label) do
-      [protocol: protocol, ip: ip, port: port, label: label]
+      [protocol: protocol, ip: ip, port: port, label: label, store: store(protocol, label)]
     else
       {:error, reason} ->
         raise ArgumentError, "listen #{inspect(item)}: #{reason}"
@@ -41,6 +43,22 @@ defmodule Exmaster.Config do
         raise ArgumentError, "listen #{inspect(item)}: want q3|q2|qw:[host:]port[=label]"
     end
   end
+
+  @doc """
+  The stores the listeners list into, as `{name, store}`: `:q3`, `:q2` and
+  `:qw` always, and a label for each labelled listener's.
+  """
+  def stores(listeners) do
+    base = for p <- [Exmaster.Q3.Master, Exmaster.Q2.Master, Exmaster.QW.Master], do: p.store()
+
+    labelled =
+      for l <- listeners, l[:label] != nil, uniq: true, do: {l[:label], l[:store]}
+
+    Enum.zip([:q3, :q2, :qw], base) ++ labelled
+  end
+
+  defp store(protocol, nil), do: protocol.store()
+  defp store(protocol, label), do: :"#{protocol.store()}_#{label}"
 
   defp hostport(s) do
     with [_, v6, v4, port] <- Regex.run(~r/^(?:(?:\[([^\]]+)\]|([^:\[\]]+)):)?(\d+)$/, s),

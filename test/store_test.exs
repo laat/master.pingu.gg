@@ -54,14 +54,10 @@ defmodule Exmaster.StoreTest do
 
   test "filtering by game", %{store: s} do
     Store.put(s, {{1, 1, 1, 1}, 1}, entry(0, game: "et"), 0, nil)
-    Store.put(s, {{2, 2, 2, 2}, 1}, entry(0, game: "ETLegacy"), 0, nil)
+    Store.put(s, {{2, 2, 2, 2}, 1}, entry(0, game: "Xonotic"), 0, nil)
     Store.put(s, {{3, 3, 3, 3}, 1}, entry(0, game: "wolfmp"), 0, nil)
-    assert Store.all(s, 0, ["et"]) |> Enum.map(&elem(&1, 0)) == [{{1, 1, 1, 1}, 1}]
-
-    assert Store.all(s, 0, ["et", "ETLegacy"]) |> Enum.map(&elem(&1, 0)) |> Enum.sort() == [
-             {{1, 1, 1, 1}, 1},
-             {{2, 2, 2, 2}, 1}
-           ]
+    assert Store.all(s, 0, "et") |> Enum.map(&elem(&1, 0)) == [{{1, 1, 1, 1}, 1}]
+    assert Store.all(s, 0, "wolfmp") |> Enum.map(&elem(&1, 0)) == [{{3, 3, 3, 3}, 1}]
   end
 
   test "a put only replaces the entry it was built from", %{store: s} do
@@ -138,13 +134,13 @@ defmodule Exmaster.StoreTest do
 
     now = Exmaster.now()
     assert [{^a, %{game: "UrbanTerror"}}] = Store.all(s, now)
-    assert Store.all(s, now, ["Quake3Arena"]) == []
-    assert [{^a, _}] = Store.all(s, now, ["UrbanTerror"])
+    assert Store.all(s, now, "Quake3Arena") == []
+    assert [{^a, _}] = Store.all(s, now, "UrbanTerror")
 
     # The older copy, of the game asked for, is ignored the other way round too.
     replica(s, {:put, a, os_entry(10_000, game: "UrbanTerror")})
     now = Exmaster.now()
-    assert [{^a, %{game: "Quake3Arena"}}] = Store.all(s, now, ["Quake3Arena"])
-    assert Store.all(s, now, ["UrbanTerror"]) == []
+    assert [{^a, %{game: "Quake3Arena"}}] = Store.all(s, now, "Quake3Arena")
+    assert Store.all(s, now, "UrbanTerror") == []
   end
 end

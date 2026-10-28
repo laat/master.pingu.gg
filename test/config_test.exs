@@ -4,18 +4,46 @@ defmodule Exmaster.ConfigTest do
   alias Exmaster.Config
 
   test "listeners" do
-    assert Config.listeners!("q3:27950, q3:27900=UrbanTerror,q2:127.0.0.1:27900,qw:27000,") == [
-             [protocol: Exmaster.Q3.Master, ip: nil, port: 27950, label: nil],
-             [protocol: Exmaster.Q3.Master, ip: nil, port: 27900, label: "UrbanTerror"],
-             [protocol: Exmaster.Q2.Master, ip: {127, 0, 0, 1}, port: 27900, label: nil],
-             [protocol: Exmaster.QW.Master, ip: nil, port: 27000, label: nil]
+    assert Config.listeners!("q3:27950, q3:27960=UrbanTerror,q2:127.0.0.1:27900,qw:27000,") == [
+             [
+               protocol: Exmaster.Q3.Master,
+               ip: nil,
+               port: 27950,
+               label: nil,
+               store: :exmaster_q3
+             ],
+             [
+               protocol: Exmaster.Q3.Master,
+               ip: nil,
+               port: 27960,
+               label: "UrbanTerror",
+               store: :exmaster_q3_UrbanTerror
+             ],
+             [
+               protocol: Exmaster.Q2.Master,
+               ip: {127, 0, 0, 1},
+               port: 27900,
+               label: nil,
+               store: :exmaster_q2
+             ],
+             [protocol: Exmaster.QW.Master, ip: nil, port: 27000, label: nil, store: :exmaster_qw]
            ]
 
-    assert Config.listeners!("q3:[::1]:27950") == [
-             [protocol: Exmaster.Q3.Master, ip: {0, 0, 0, 0, 0, 0, 0, 1}, port: 27950, label: nil]
-           ]
+    assert [[protocol: Exmaster.Q3.Master, ip: {0, 0, 0, 0, 0, 0, 0, 1}, port: 27950] ++ _] =
+             Config.listeners!("q3:[::1]:27950")
 
     assert Config.listeners!("") == []
+  end
+
+  test "each label has a store, shared by its listeners" do
+    listeners = Config.listeners!("q3:27950,q3:27960=UrbanTerror,q3:[::1]:27960=UrbanTerror")
+
+    assert Config.stores(listeners) == [
+             {:q3, :exmaster_q3},
+             {:q2, :exmaster_q2},
+             {:qw, :exmaster_qw},
+             {"UrbanTerror", :exmaster_q3_UrbanTerror}
+           ]
   end
 
   test "bad specs" do

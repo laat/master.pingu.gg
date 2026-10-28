@@ -6,33 +6,35 @@ defmodule Exmaster do
 
   alias Exmaster.{Addr, Store}
 
-  @stores [q3: :exmaster_q3, q2: :exmaster_q2, qw: :exmaster_qw]
-
   @doc "The clock everything goes by, in milliseconds."
   def now, do: System.monotonic_time(:millisecond)
 
   @doc """
   The number of servers each master lists, in total, by game, and of those
-  the ones this node lists itself rather than another.
+  the ones this node lists itself rather than another. Masters are `:q3`,
+  `:q2`, `:qw` and the labels of labelled listeners.
 
       bin/exmaster rpc 'IO.inspect(Exmaster.stats())'
   """
   def stats do
     now = now()
 
-    for {name, store} <- @stores, into: %{} do
+    for {name, store} <- stores(), into: %{} do
       entries = Store.all(store, now)
       games = Enum.frequencies_by(entries, fn {_, e} -> e.game end)
       {name, %{servers: length(entries), local: Store.local_count(store, now), games: games}}
     end
   end
 
-  @doc "The servers a master (`:q3`, `:q2` or `:qw`) lists, sorted by address."
+  @doc """
+  The servers a master (`:q3`, `:q2`, `:qw` or a label, such as
+  `"UrbanTerror"`) lists, sorted by address.
+  """
   def servers(master) do
     now = now()
+    {_, store} = List.keyfind!(stores(), master, 0)
 
-    @stores
-    |> Keyword.fetch!(master)
+    store
     |> Store.all(now)
     |> Enum.sort()
     |> Enum.map(fn {addr, e} ->
@@ -42,4 +44,10 @@ defmodule Exmaster do
       |> Map.put(:expires_in, div(e.expires - now, 1000))
     end)
   end
+
+  defp stores,
+    do:
+      Exmaster.Config.stores(
+        Exmaster.Config.listeners!(Application.fetch_env!(:exmaster, :listen))
+      )
 end
