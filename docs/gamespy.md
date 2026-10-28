@@ -119,9 +119,9 @@ wrong length nothing.
 
 1. **Heartbeat from an address that isn't listed.** The master sends
    `\info\\secure\<challenge>` to the heartbeat's IP and query port, and
-   stores nothing. A challenge is 16 characters of `[A-Za-z0-9]` (6 for
-   Unreal Tournament): the game's, then an HMAC of the address, the
-   listener and a 5-second time bucket. It is good in its bucket and the
+   stores nothing. A challenge is 16 characters of `[A-Za-z0-9]`: the
+   game's, then 15 of an HMAC of the address, the listener, the game and
+   a 5-second time bucket (Unreal Tournament's: 6, all HMAC). It is good in its bucket and the
    next, 5 to 10 seconds.
 2. **Reply with a valid `\validate\`, from that address.** The server is
    listed for 15 minutes, with `hostname`, `numplayers`, `maxplayers` and
@@ -234,8 +234,12 @@ gslist.cfg; the server's `\validate\` matches it). 333networks listed
   stays listed until it expires.
 - **The challenge.** The server answers only the first 6 characters of a
   `\secure\` challenge: its `\validate\` is 8 characters, the first 8 of
-  the response to the whole. So exmaster sends it 6: the game's and 5 of
-  HMAC, about 30 bits, for a challenge that lives 10 seconds.
+  the response to the whole. So exmaster sends it 6, all HMAC; a
+  response's length tells it from the other games'. A blind forger needs
+  about 62^6 / 2 = 2.8·10^10 guesses for one address, each a packet: a
+  challenge's lifetime doesn't matter, since every forged reply is
+  checked against the current one. One listener checks about 44,000 a
+  second.
 - **The reply** to `\info\\secure\<challenge>` is one packet:
   `\hostname\…\hostport\7777\maptitle\…\mapname\DM-Deck16][\gametype\DeathMatchPlus\numplayers\0\maxplayers\10\gamemode\openplaying\gamever\469\minnetver\432\worldlog\true\wantworldlog\true\validate\…\queryid\1.1\final\`.
 - **Clients** (UBrowser's `UBrowserGSpyFact`) ask for the text list:

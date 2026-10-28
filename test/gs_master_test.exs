@@ -176,7 +176,7 @@ defmodule Exmaster.GS.MasterTest do
     {[{"\\info\\\\secure\\" <> challenge, @ut}], state} =
       Master.handle_packet("\\heartbeat\\7778\\gamename\\ut", {@ip, 7_779}, ctx, 0, state)
 
-    assert challenge =~ ~r/\AC[A-Za-z0-9]{5}\z/
+    assert challenge =~ ~r/\A[A-Za-z0-9]{6}\z/
     # As UT does: the response to the challenge's first 6 characters.
     validate = GS.validate(binary_part(challenge, 0, 6), "Z5Nfb0")
     payload = @ut_info <> "\\validate\\#{validate}\\queryid\\1.1\\final\\"

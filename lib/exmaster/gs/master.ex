@@ -35,10 +35,12 @@ defmodule Exmaster.GS.Master do
   # its game's place in it, so new ones go last.
   @games ["bfield1942", "mohaa", "ut"]
 
-  # Challenges: [A-Za-z0-9], the game's character then the rest from an
-  # HMAC, 16 in all. BF1942 and MOH:AA took up to 65, gsseckey's limit;
-  # Unreal Tournament answers the first 6 only, so its are 6: about 30
-  # bits, for a challenge that lives 10 seconds.
+  # Challenges: [A-Za-z0-9], 16, the game's character then 15 from an HMAC.
+  # BF1942 and MOH:AA took up to 65, gsseckey's limit. Unreal Tournament
+  # answers the first 6 only, so its are 6, all HMAC: its responses are
+  # told apart by their length, and the HMAC covers the game. A blind
+  # forger needs about 62^6 / 2 guesses (two buckets are good), each a
+  # packet the master checks, whatever a challenge's lifetime.
   @alphabet Enum.concat([?A..?Z, ?a..?z, ?0..?9]) |> List.to_string()
   @challenge_length %{"ut" => 6}
 
@@ -140,12 +142,12 @@ defmodule Exmaster.GS.Master do
   def challenge(addr, game, via, bucket, key \\ key()) do
     index = Enum.find_index(@games, &(&1 == game))
     data = [Addr.to_binary(addr), Addr.to_binary(via), <<bucket::signed-64, index>>]
-    mac_length = challenge_length(game) - 1
+    length = challenge_length(game)
+    prefix = if length == 16, do: <<:binary.at(@alphabet, index)>>, else: ""
+    mac_length = length - byte_size(prefix)
     <<mac::binary-size(^mac_length), _::binary>> = :crypto.mac(:hmac, :sha256, key, data)
-    # A byte a character, rem 62: 89 bits for 15, slightly uneven.
-    for <<b <- mac>>,
-      into: <<:binary.at(@alphabet, index)>>,
-      do: <<:binary.at(@alphabet, rem(b, 62))>>
+    # A byte a character, rem 62, slightly uneven.
+    for <<b <- mac>>, into: prefix, do: <<:binary.at(@alphabet, rem(b, 62))>>
   end
 
   defp key, do: :persistent_term.get({__MODULE__, :key})

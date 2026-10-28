@@ -183,7 +183,8 @@ send `\info\\secure\<challenge>` to the server's query port. The server
 is listed once a reply from there carries the challenge's `\validate\`,
 gsmsalg under the game's key. The challenges are stateless, as Quake
 3's: an HMAC of the address, the listener and a 5-second bucket, 16
-characters, or 6 for Unreal Tournament, which answers no more. Clients
+characters, or 6, all HMAC, for Unreal Tournament, which answers no
+more. Clients
 get the list over TCP, as 6-byte entries or as text, encrypted with
 GameSpy's enctype 2 when they ask for it, as Battlefield 1942 does. The
 list server takes 64 connections at once, 5 an IP at once then one every
