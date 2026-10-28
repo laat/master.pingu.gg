@@ -92,4 +92,59 @@ defmodule Exmaster.StoreTest do
     assert {:dropped, %{via: :a}} = Store.drop_unless_seen(s, a, 101, :a)
     assert Store.lookup(s, a, 100) == nil
   end
+
+  # What another node's store sends: times on the OS clock.
+  defp replica(s, msg) do
+    send(s, {:replica, :"other@127.0.0.1", msg})
+    :sys.get_state(s)
+  end
+
+  defp os_entry(in_ms, opts \\ []) do
+    os = System.os_time(:millisecond)
+    entry(0, [seen: os + in_ms - 60_000, expires: os + in_ms] ++ opts)
+  end
+
+  test "another node's servers, on this node's clock", %{store: s} do
+    a = {{1, 1, 1, 1}, 1}
+    replica(s, {:put, a, os_entry(60_000)})
+    now = Exmaster.now()
+    assert [{^a, %{expires: expires}}] = Store.all(s, now)
+    assert_in_delta expires, now + 60_000, 1_000
+    # Only this node's own servers are looked up and counted.
+    assert Store.lookup(s, a, now) == nil
+    assert Store.local_count(s, now) == 0
+
+    replica(s, {:drop, a})
+    assert Store.all(s, Exmaster.now()) == []
+  end
+
+  test "a copy that expired on the way isn't listed", %{store: s} do
+    # Held up in transit or in a mailbox past its expiry at its node.
+    replica(s, {:put, {{1, 1, 1, 1}, 1}, os_entry(-1)})
+    assert Store.all(s, Exmaster.now()) == []
+  end
+
+  test "a node's list replaces what it sent before", %{store: s} do
+    replica(s, {:put, {{1, 1, 1, 1}, 1}, os_entry(60_000)})
+    replica(s, {:list, [{{{2, 2, 2, 2}, 1}, os_entry(60_000)}]})
+    assert [{{{2, 2, 2, 2}, 1}, _}] = Store.all(s, Exmaster.now())
+  end
+
+  test "the newest copy of a server decides its game", %{store: s} do
+    a = {{1, 1, 1, 1}, 1}
+    now = Exmaster.now()
+    :ok = Store.put(s, a, entry(now, expires: now + 30_000), now, nil)
+    replica(s, {:put, a, os_entry(60_000, game: "UrbanTerror")})
+
+    now = Exmaster.now()
+    assert [{^a, %{game: "UrbanTerror"}}] = Store.all(s, now)
+    assert Store.all(s, now, ["Quake3Arena"]) == []
+    assert [{^a, _}] = Store.all(s, now, ["UrbanTerror"])
+
+    # The older copy, of the game asked for, is ignored the other way round too.
+    replica(s, {:put, a, os_entry(10_000, game: "UrbanTerror")})
+    now = Exmaster.now()
+    assert [{^a, %{game: "Quake3Arena"}}] = Store.all(s, now, ["Quake3Arena"])
+    assert Store.all(s, now, ["UrbanTerror"]) == []
+  end
 end

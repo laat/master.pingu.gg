@@ -64,7 +64,9 @@ EXMASTER_PEERS=exmaster@10.0.0.1,exmaster@10.0.0.2 \
   _build/prod/rel/exmaster/bin/exmaster start
 ```
 
-A node tries to connect to the others every 5 seconds. Distribution
+A node tries to connect to the others every 5 seconds. Entries are sent
+with their expiry on the OS clock, so the hosts' clocks have to agree, as
+NTP keeps them. Distribution
 needs TCP 4369 (epmd) and a port per node, which
 `ERL_AFLAGS="-kernel inet_dist_listen_min 9100 inet_dist_listen_max 9100"`
 pins. It isn't encrypted, and a node with the cookie can run any code on
@@ -102,10 +104,12 @@ Exmaster.Supervisor
 - With several nodes, each store sends the servers it adds, replaces and
   drops to the same master's store on the others, which keep them in a
   second table, keyed by address and node. Queries answer from both
-  tables; a server two nodes list is sent once. A store that joins, after
+  tables; a server two nodes list is sent once, as the node that heard
+  from it last has it. A store that joins, after
   a restart or a split, gets each other node's whole list, which replaces
-  what it had from that node. Times are moved from the sender's monotonic
-  clock to the receiver's. See `Exmaster.Store`.
+  what it had from that node. Entries travel with their times on the OS
+  clock, and each node converts to and from its monotonic clock. See
+  `Exmaster.Store`.
 - Token buckets are one integer each (GCRA), updated with
   compare-and-swap. Listeners share them without a process in between.
   Time is counted in units of 1/rate ms, so byte costs don't round.
