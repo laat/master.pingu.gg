@@ -9,8 +9,8 @@ which install the original server binaries and game data:
 | `q3` | id's q3ded 1.32c | 27960 | 127.0.0.1:27950 |
 | `q2` | id's quake2 3.20 | 27910 | 127.0.0.1:27900 |
 | `qw` | nQuake's MVDSV 0.32 with KTX | 27500 | 127.0.0.1:27000 |
-| `bf1942` | DICE's bf1942_lnxded 1.61, patched to 1.612 | 14567, queries 23000 | 127.0.0.2:27900, lists TCP 28900 |
-| `mohaa` | mohaa_lnxded 1.12 with the Reborn patch RC3.5.1 | 12203, queries 12300 | 127.0.0.2:27900, lists TCP 28900 |
+| `bf1942` | DICE's bf1942_lnxded 1.61, patched to 1.612 | 14567, queries 23000 | 127.0.0.1:27900, lists TCP 28900 |
+| `mohaa` | mohaa_lnxded 1.12 with the Reborn patch RC3.5.1 | 12203, queries 12300 | 127.0.0.1:27900, lists TCP 28900 |
 | `rtcw` | iortcw's iowolfded | 27961 | 127.0.0.1:27950 |
 | `wet` | id's etded 2.60b | 27962 | 127.0.0.1:27950 |
 | `etl` | ET: Legacy's etlded | 27963 | 127.0.0.1:27950 |
@@ -21,14 +21,15 @@ which install the original server binaries and game data:
 | `cod2` | Activision's cod2_lnxded 1.3 | 28962 | 127.0.0.1:20710, labelled `CoD2` |
 | `cod4` | CoD4X 1.8's cod4x18_dedrun | 28964 | 127.0.0.1:20810, labelled `CoD4` |
 | `sof2` | Raven's sof2ded 1.03 | 20100 | 127.0.0.1:20110, labelled `SoF2` |
-| `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.2:27900, lists TCP 28900 |
+| `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.1:27900, lists TCP 28900 |
 
 They use host networking and heartbeat exmaster on loopback only. The
-GameSpy master is on 127.0.0.2, since Quake 2's has 127.0.0.1:27900 and
-Battlefield 1942 and MOH:AA can't heartbeat another port.
+GameSpy master shares 127.0.0.1:27900 with Quake 2's, on one socket (see
+[Sharing port 27900](../docs/gamespy.md#sharing-port-27900)): Battlefield
+1942 and MOH:AA can't heartbeat another port.
 
 ```
-EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.2:27900,gsl:127.0.0.2:28900,\
+EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.1:27900,gsl:127.0.0.1:28900,\
 q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2 \
   elixir --sname exmaster -S mix run --no-halt
 
@@ -38,9 +39,9 @@ python3 -I gameservers/query.py     # the lists, as clients ask for them
 quakestat -q3m 127.0.0.1:27950      # qstat (apt install qstat) asks each server too
 quakestat -rwm 127.0.0.1:27950
 quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
-quakestat -gsm,bfield1942 127.0.0.2:28900
-quakestat -gsm,mohaa 127.0.0.2:28900
-quakestat -gsm,ut 127.0.0.2:28900
+quakestat -gsm,bfield1942 127.0.0.1:28900
+quakestat -gsm,mohaa 127.0.0.1:28900
+quakestat -gsm,ut 127.0.0.1:28900
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
 docker compose -f gameservers/docker-compose.yml down
@@ -84,20 +85,19 @@ own from `config/` instead:
 - Battlefield 1942 heartbeats `master.gamespy.com` and the All-Seeing
   Eye's `master.udpsoft.com` and `master2.udpsoft.com`, none of which
   resolve any more. `extra_hosts` points the first at exmaster on
-  127.0.0.2 and the others at 127.0.0.3, where nothing listens. Its
+  127.0.0.1 and the others at 127.0.0.3, where nothing listens. Its
   config sets `game.serverIP 127.0.0.1`, which binds the game and
   All-Seeing Eye ports; its GameSpy query port, 23000, listens on 0.0.0.0
   whatever it says.
 - MOH:AA heartbeats `master.gamespy.com` only; the Reborn patch's
   `mohmaster.2015.com` and GameSpy's `master0` and `master1`, named in its
   config, aren't contacted, and none of them resolve. `extra_hosts` points
-  the first at exmaster on 127.0.0.2 and the others at 127.0.0.3. Its
+  the first at exmaster on 127.0.0.1 and the others at 127.0.0.3. Its
   instance config, `config/mohaaserver.cfg`, is mounted outside
   `serverfiles`, so the image installs it; it binds 127.0.0.1, but the
   query port, 12300, listens on 0.0.0.0. It also sets `sv_gamespy 1`
   before `+map` (see [docs/gamespy.md](../docs/gamespy.md#medal-of-honor-allied-assault))
-  and `querymode="1"`, without which LinuxGSM's monitor, which can't
-  query it, starts a second instance.
+  and `querymode="1"`, since LinuxGSM's monitor can't query it.
 - RTCW, ET, ET: Legacy, Xonotic and Warfork don't run LinuxGSM's server
   configs at all: the start line in their instance config sets what they
   need, the master (`sv_master1`, Warfork's `masterservers`) included,
@@ -124,7 +124,7 @@ own from `config/` instead:
 - Unreal Tournament's masters are `ServerActors` uplink lines in its ini,
   which is in `serverfiles`, and LinuxGSM's names fourteen public ones.
   `run.sh` rewrites it before it starts: the uplinks become one to
-  exmaster on 127.0.0.2, the LAN beacon (`IpDrv.UdpBeacon`) and web
+  exmaster on 127.0.0.1, the LAN beacon (`IpDrv.UdpBeacon`) and web
   admin (`UWeb.WebServer`, on 8076 with the password `admin`) go, and
   `FirstRun` becomes 469. OldUnreal 469 upgrades an ini with an older
   `FirstRun` and adds its four default masters to it, which `extra_hosts`
@@ -142,8 +142,12 @@ sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942 or
 MOH:AA with gamedig (qstat can), and queries ET and ET: Legacy on 27960,
 the port it takes from their server configs. It restarts a server after
-five failures, every three minutes or so, or starts a second instance,
-so `querymode="1"` has it check the process only for those six.
+five failures, every three minutes or so, so `querymode="1"` has it
+check the process only for those six. Separately, as a container
+starts, the monitor can race the image's own start and run the server a
+second time, until it finds two a minute later and restarts it:
+Battlefield 1942's second ran on 23001, and exmaster listed it until it
+expired, since Battlefield 1942 sends nothing when it stops.
 
 ## What it showed (2026-10-28)
 
@@ -204,9 +208,11 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   server configs, until the ports were written out on their start lines;
   each Quake 3 engine then moved one port up from a taken one, which put
   RTCW on 27962.
-- LinuxGSM's monitor, which can't query Battlefield 1942, started a
-  second instance of it on 23001, found two and restarted it, until
-  `querymode="1"`.
+- Battlefield 1942 ran twice for a minute after its container started,
+  the second on 23001: LinuxGSM's log has "Monitor is restarting" as the
+  image's start ran, then "PIDS with the same tmux session" and a
+  restart. It did again later with `querymode="1"`, so that setting isn't
+  what stops it; it is a race at start.
 
 ## What it showed for Call of Duty and SoF2 (2026-10-28)
 
@@ -241,4 +247,14 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   With `FirstRun=469` from the start, the ini kept only exmaster's.
 - No game-port traffic left loopback, and no DNS lookup for a master
   name was made.
+
+## What it showed with Quake 2 and GameSpy on one address (2026-10-28)
+
+- With `q2:127.0.0.1:27900,gs:127.0.0.1:27900`, exmaster ran one socket
+  ("Quake 2 and GameSpy master listening on inet port 27900"), and Quake
+  2, Battlefield 1942, MOH:AA and Unreal Tournament all registered
+  through it, from a fresh install for all but Unreal Tournament.
+- `query.py` got each from 127.0.0.1, and qstat `-q2m` and `-gsm` got
+  them and queried each server.
+- No game-port traffic left loopback.
 
