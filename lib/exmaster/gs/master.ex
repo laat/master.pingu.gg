@@ -33,10 +33,12 @@ defmodule Exmaster.GS.Master do
   # its game's place in it.
   @games ["bfield1942"]
 
-  # Challenges: [A-Za-z0-9], the game's character then 15 of HMAC. Real
-  # servers took up to 65, gsseckey's limit.
+  # Challenges: [A-Za-z0-9], the game's character then 15 from an HMAC.
+  # Real servers took up to 65, gsseckey's limit.
   @alphabet Enum.concat([?A..?Z, ?a..?z, ?0..?9]) |> List.to_string()
   @mac_length 15
+  # gsmsalg's response to a challenge of 16: base64 of 16 bytes padded to 18.
+  @response_length 24
 
   @impl true
   def name, do: "GameSpy"
@@ -136,26 +138,29 @@ defmodule Exmaster.GS.Master do
   def challenge(addr, game, via, bucket, key \\ key()) do
     index = Enum.find_index(@games, &(&1 == game))
     data = [Addr.to_binary(addr), Addr.to_binary(via), <<bucket::signed-64, index>>]
-    <<v::120, _::binary>> = :crypto.mac(:hmac, :sha256, key, data)
-    <<:binary.at(@alphabet, index)>> <> digits(v, @mac_length, "")
+    <<mac::binary-size(@mac_length), _::binary>> = :crypto.mac(:hmac, :sha256, key, data)
+    # A byte a character, rem 62: 89 bits, slightly uneven, for a challenge
+    # that lives 10 seconds.
+    for <<b <- mac>>,
+      into: <<:binary.at(@alphabet, index)>>,
+      do: <<:binary.at(@alphabet, rem(b, 62))>>
   end
-
-  defp digits(_v, 0, acc), do: acc
-
-  defp digits(v, n, acc),
-    do: digits(div(v, 62), n - 1, <<:binary.at(@alphabet, rem(v, 62))>> <> acc)
 
   defp key, do: :persistent_term.get({__MODULE__, :key})
 
   # The game whose challenge, sent from via to addr in this time bucket or
-  # the one before, the response answers, or nil.
+  # the one before, the response answers, or nil. Any packet with a
+  # \\validate\\ gets here, from any address, so the length goes first.
+  defp answered(_addr, response, _via, _now, _ttl) when byte_size(response) != @response_length,
+    do: nil
+
   defp answered(addr, response, via, now, ttl) do
     bucket = Integer.floor_div(now, ttl)
 
     Enum.find(@games, fn game ->
       Enum.any?([bucket, bucket - 1], fn b ->
         expected = GS.validate(challenge(addr, game, via, b), GS.key(game))
-        byte_size(response) == byte_size(expected) and :crypto.hash_equals(response, expected)
+        :crypto.hash_equals(response, expected)
       end)
     end)
   end

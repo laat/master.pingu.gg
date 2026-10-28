@@ -181,7 +181,7 @@ as Quake 3's: an HMAC of the address, the listener and a 5-second bucket.
 Clients get the list over TCP, as 6-byte entries encrypted with GameSpy's
 enctype 2 when they ask for it, as Battlefield 1942 does. The list
 server takes 64 connections at once, 5 an IP at once then one every 3
-seconds, and gives each 5 seconds to ask. See
+seconds, gives each 5 seconds to ask and closes it after 10. See
 [docs/gamespy.md](docs/gamespy.md).
 
 ### Limits, for all of them

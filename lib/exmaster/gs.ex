@@ -51,27 +51,47 @@ defmodule Exmaster.GS do
   then base64. GameSpy's code takes challenges of 1 to 65 bytes.
   """
   def validate(challenge, key) when byte_size(challenge) in 1..65 do
-    table =
-      Enum.reduce(0..255, {List.to_tuple(Enum.to_list(0..255)), 0}, fn i, {t, a} ->
-        a = rem(a + elem(t, i) + :binary.at(key, rem(i, byte_size(key))), 256)
-        {swap(t, i, a), a}
-      end)
-      |> elem(0)
+    table = schedule(key)
+
+    # The second pass swaps at most two entries a byte; they are kept in a
+    # map over the key's table rather than in a copy of it.
+    at = fn swapped, i -> Map.get_lazy(swapped, i, fn -> elem(table, i) end) end
 
     {out, _, _, _} =
-      for <<c <- challenge>>, reduce: {[], table, 0, 0} do
-        {out, t, a, b} ->
+      for <<c <- challenge>>, reduce: {[], %{}, 0, 0} do
+        {out, swapped, a, b} ->
           a = rem(a + c + 1, 256)
-          x = elem(t, a)
+          x = at.(swapped, a)
           b = rem(b + x, 256)
-          y = elem(t, b)
-          t = t |> put_elem(b, x) |> put_elem(a, y)
-          {[Bitwise.bxor(c, elem(t, rem(x + y, 256))) | out], t, a, b}
+          y = at.(swapped, b)
+          swapped = swapped |> Map.put(b, x) |> Map.put(a, y)
+          {[Bitwise.bxor(c, at.(swapped, rem(x + y, 256))) | out], swapped, a, b}
       end
 
     bytes = out |> Enum.reverse() |> :erlang.list_to_binary()
     pad = rem(3 - rem(byte_size(bytes), 3), 3)
     Base.encode64(bytes <> :binary.copy(<<0>>, pad))
+  end
+
+  # The first pass depends on the key alone, and costs 20 times the rest:
+  # it is done once a key and kept, so checking a forged \\validate\\ is
+  # cheap.
+  defp schedule(key) do
+    case :persistent_term.get({__MODULE__, :schedule, key}, nil) do
+      nil ->
+        table =
+          Enum.reduce(0..255, {List.to_tuple(Enum.to_list(0..255)), 0}, fn i, {t, a} ->
+            a = rem(a + elem(t, i) + :binary.at(key, rem(i, byte_size(key))), 256)
+            {swap(t, i, a), a}
+          end)
+          |> elem(0)
+
+        :persistent_term.put({__MODULE__, :schedule, key}, table)
+        table
+
+      table ->
+        table
+    end
   end
 
   defp swap(t, i, j), do: t |> put_elem(i, elem(t, j)) |> put_elem(j, elem(t, i))

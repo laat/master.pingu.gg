@@ -15,7 +15,9 @@ defmodule Exmaster.GS.ListServer do
   themselves. So is the client's `\\validate\\`: the keys are public.
 
   A listener process owns the socket; an acceptor hands each connection to
-  a task under a `Task.Supervisor` that takes at most 64 at once.
+  a task under a `Task.Supervisor` that takes at most 64 at once. A task
+  has 5 seconds to read the request and is killed, with its socket, 10
+  seconds after it started.
   """
   use GenServer
   require Logger
@@ -28,7 +30,10 @@ defmodule Exmaster.GS.ListServer do
   # queries to the other masters.
   @connect_limit {1, 3_000, 5}
   # A client has this long from connecting to ask, and this much to say.
+  # A connection is closed this long after it opened, whatever it is
+  # doing, so a client that reads its list slowly can't keep a slot.
   @timeout 5_000
+  @lifetime 10_000
   @max_request 2_048
 
   def child_spec(opts),
@@ -49,7 +54,17 @@ defmodule Exmaster.GS.ListServer do
   def init(opts) do
     ip = Keyword.get(opts, :ip)
     store = Keyword.get(opts, :store, store())
-    sock_opts = [:binary, :inet, active: false, reuseaddr: true, backlog: 128]
+    # Accepted sockets inherit these.
+    sock_opts = [
+      :binary,
+      :inet,
+      active: false,
+      reuseaddr: true,
+      backlog: 128,
+      send_timeout: @timeout,
+      send_timeout_close: true
+    ]
+
     sock_opts = if ip, do: [ip: ip] ++ sock_opts, else: sock_opts
 
     case :gen_tcp.listen(Keyword.get(opts, :port, 0), sock_opts) do
@@ -94,6 +109,9 @@ defmodule Exmaster.GS.ListServer do
   defp serve(store) do
     receive do
       {:socket, sock} ->
+        # Killed, the task takes the socket, which it owns, with it.
+        {:ok, _} = :timer.kill_after(@lifetime)
+
         try do
           converse(sock, store)
         after
@@ -104,27 +122,32 @@ defmodule Exmaster.GS.ListServer do
     end
   end
 
+  # A client that has gone (a scanner that connects and resets) makes a
+  # send or peername fail, which ends the conversation like any refusal.
+  # The reply budget is reserved before the list is made and encrypted, as
+  # the UDP masters reserve it.
   defp converse(sock, store) do
     deadline = Exmaster.now() + @timeout
-    :ok = :gen_tcp.send(sock, "\\basic\\\\secure\\" <> random_challenge())
 
-    with {:ok, hello, request} <- read(sock, "", deadline),
-         {:ok, list} <- list(request, hello, store) do
-      {:ok, {ip, _} = peer} = :inet.peername(sock)
-      now = Exmaster.now()
-
-      with :ok <- RateLimit.reserve_reply(now),
-           :ok <- RateLimit.charge_reply(byte_size(list), now) do
-        Logger.debug("gs: list for #{Addr.to_string(peer)}, #{byte_size(list)} bytes")
-        :gen_tcp.send(sock, list)
-      else
-        _ -> Logger.debug("gs: list for #{:inet.ntoa(ip)} over the reply budget")
-      end
+    with {:ok, peer} <- :inet.peername(sock),
+         :ok <- :gen_tcp.send(sock, "\\basic\\\\secure\\" <> random_challenge()),
+         {:ok, hello, request} <- read(sock, "", deadline),
+         now = Exmaster.now(),
+         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)},
+         {:ok, list} <- list(request, hello, store),
+         {:budget, :ok} <- {:budget, RateLimit.charge_reply(byte_size(list), now)} do
+      Logger.debug("gs: list for #{Addr.to_string(peer)}, #{byte_size(list)} bytes")
+      :gen_tcp.send(sock, list)
+    else
+      {:budget, _} -> Logger.debug("gs: a list over the reply budget")
+      _ -> :ok
     end
   end
 
   # Reads until the client has sent its \list\ request and \final\ after
   # it: {:ok, the hello before it, the request}.
+  defp read(_sock, buf, _deadline) when byte_size(buf) > @max_request, do: :error
+
   defp read(sock, buf, deadline) do
     with [head, tail] <- :binary.split(buf, "\\list\\"),
          [list, _] <- :binary.split(tail, "\\final\\") do
@@ -133,7 +156,7 @@ defmodule Exmaster.GS.ListServer do
       _ ->
         wait = deadline - Exmaster.now()
 
-        with true <- wait > 0 and byte_size(buf) < @max_request,
+        with true <- wait > 0,
              {:ok, data} <- :gen_tcp.recv(sock, 0, wait) do
           read(sock, buf <> data, deadline)
         else

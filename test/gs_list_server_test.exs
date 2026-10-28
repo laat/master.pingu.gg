@@ -1,6 +1,7 @@
 defmodule Exmaster.GS.ListServerTest do
   @moduledoc "The GameSpy list server over real sockets."
   use ExUnit.Case
+  import ExUnit.CaptureLog
 
   alias Exmaster.{GS, RateLimit, Store}
   alias Exmaster.GS.{Enctype2, ListServer}
@@ -89,5 +90,46 @@ defmodule Exmaster.GS.ListServerTest do
     for _ <- 1..5, do: assert(ask(port, 0) != "")
     s = connect(port)
     assert :gen_tcp.recv(s, 0, 1_000) == {:error, :closed}
+  end
+
+  test "a client that resets at once leaves no error", %{port: port} do
+    log =
+      capture_log(fn ->
+        for _ <- 1..3 do
+          {:ok, s} =
+            :gen_tcp.connect(@localhost, port, [:binary, active: false, linger: {true, 0}])
+
+          :gen_tcp.close(s)
+        end
+
+        Process.sleep(200)
+      end)
+
+    refute log =~ "terminating"
+  end
+
+  test "a request over 2 KB gets nothing, however it arrives", %{port: port} do
+    s = connect(port)
+    {:ok, _} = :gen_tcp.recv(s, 0, 1_000)
+    padding = String.duplicate("x", 2_300)
+    :ok = :gen_tcp.send(s, "\\gamename\\bfield1942\\pad\\" <> binary_part(padding, 0, 1_300))
+    Process.sleep(20)
+
+    :ok =
+      :gen_tcp.send(
+        s,
+        binary_part(padding, 1_300, 1_000) <>
+          "\\enctype\\0\\final\\\\list\\cmp\\gamename\\bfield1942\\final\\"
+      )
+
+    assert read_all(s, "") == ""
+  end
+
+  test "no list when the reply budget is spent", %{port: port} do
+    # Spent a minute ahead, so it doesn't refill while the client asks.
+    :ok =
+      RateLimit.take(:replies, {262_144, 1_000, 1_048_576}, 1_048_576, Exmaster.now() + 60_000)
+
+    assert ask(port, 2) == ""
   end
 end

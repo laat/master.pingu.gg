@@ -82,7 +82,10 @@ Internet answered `ABCDEF` with `vXrDWjx4`. `\status\` is `\info\` with
 
 Battlefield 1942's key is `HpWx9z`. Anyone can compute a response, so the
 response proves nothing by itself; the challenge does: only the master
-and the server it went to know it.
+and the server it went to know it. gsmsalg's first pass depends on the
+key alone, so exmaster does it once a game; a forged `\validate\` then
+costs it about as much as a forged Quake 3 `infoResponse`, and one of the
+wrong length nothing.
 
 ## How exmaster lists servers
 
@@ -132,7 +135,9 @@ encrypting needs the asking game's key.
 
 Limits: 64 connections at once, for everyone; per IP, 5 at once, then
 one every 3 seconds; 5 seconds and 2 KB from connecting to the end of the
-request; and the reply-byte budget all masters share.
+request; 10 seconds in all, sending included, so a client that reads
+slowly can't keep a slot; and the reply-byte budget all masters share,
+reserved before the list is made and encrypted.
 
 ## Enctype 2
 
