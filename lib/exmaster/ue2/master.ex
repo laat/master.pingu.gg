@@ -475,9 +475,10 @@ defmodule Exmaster.UE2.Master do
   # by the time waited for the budget: a client that reads slowly has its
   # 15 seconds, and one that stops reading is closed by the 5-second send
   # timeout.
-  defp send_paid(_sock, [], _credit, _ends, _waited), do: :ok
+  @doc false
+  def send_paid(_sock, [], _credit, _ends, _waited), do: :ok
 
-  defp send_paid(sock, [{chunk, size} | rest], credit, ends, waited) do
+  def send_paid(sock, [{chunk, size} | rest], credit, ends, waited) do
     with {:ok, waited} <- pay(max(size - credit, 0), waited),
          true <- Exmaster.now() < ends + waited,
          :ok <- :gen_tcp.send(sock, chunk) do

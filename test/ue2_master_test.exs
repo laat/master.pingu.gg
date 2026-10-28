@@ -349,6 +349,23 @@ defmodule Exmaster.UE2.MasterTest do
     assert length(list(port)) == 5_000
   end
 
+  # On loopback the kernel buffers more than a test can send, so a slow
+  # reader doesn't get there; this is the check, given a deadline.
+  test "a list stops at its connection's end, moved by its waits for the budget" do
+    {:ok, l} = :gen_tcp.listen(0, [:binary, active: false, ip: @localhost])
+    {:ok, port} = :inet.port(l)
+    {:ok, c} = :gen_tcp.connect(@localhost, port, [:binary, active: false])
+    {:ok, s} = :gen_tcp.accept(l)
+    now = Exmaster.now()
+    chunks = [{"abc", 3}, {"def", 3}]
+
+    assert Master.send_paid(s, chunks, 6, now - 1, 0) == :error
+    assert :gen_tcp.recv(c, 0, 100) == {:error, :timeout}
+    assert Master.send_paid(s, chunks, 6, now - 1, 1_000) == :ok
+    assert Master.send_paid(s, chunks, 6, now + 1_000, 0) == :ok
+    assert {:ok, "abcdefabcdef"} = :gen_tcp.recv(c, 12, 1_000)
+  end
+
   test "frames over 32 KB close the connection; a heartbeat in the hello's place is denied" do
     port = start()
     s = uplink(port)
