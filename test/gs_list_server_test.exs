@@ -132,4 +132,23 @@ defmodule Exmaster.GS.ListServerTest do
 
     assert ask(port, 2) == ""
   end
+
+  test "MOH:AA's request, with no enctype: a plain list of its own servers", %{port: port} do
+    now = Exmaster.now()
+    moh = {{198, 51, 100, 9}, 12_300}
+    entry = %{game: "mohaa", clients: 0, seen: now, expires: now + 60_000}
+    :ok = Store.put(:exmaster_gs, moh, entry, now, nil)
+
+    s = connect(port)
+    {:ok, "\\basic\\\\secure\\" <> challenge} = :gen_tcp.recv(s, 0, 1_000)
+
+    :ok =
+      :gen_tcp.send(
+        s,
+        "\\gamename\\mohaa\\gamever\\1.12\\location\\0\\validate\\#{GS.validate(challenge, "M5Fdwc")}" <>
+          "\\final\\\\queryid\\1.1\\\\list\\cmp\\gamename\\mohaa\\final\\"
+      )
+
+    assert read_all(s, "") == GS.encode_list([moh]) <> "\\final\\"
+  end
 end

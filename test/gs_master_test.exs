@@ -132,4 +132,35 @@ defmodule Exmaster.GS.MasterTest do
     {[], _} = Master.tick(ctx, 140_000, state)
     assert Store.lookup(:exmaster_gs, @server, 140_000) == nil
   end
+
+  # MOH:AA's heartbeat and its reply to \info\\secure\, from its query port.
+  @moh {@ip, 12_300}
+  @moh_heartbeat "\\heartbeat\\12300\\gamename\\mohaa\\statechanged\\"
+  @moh_info "\\gamemode\\openplaying\\maxplayers\\14\\numplayers\\0\\gametype\\Round-Based-Match\\mapname\\dm/mohdm1\\hostport\\12203\\hostname\\exmaster-test"
+
+  defp moh_answer(ctx, state, challenge, now, key) do
+    payload = @moh_info <> "\\validate\\#{GS.validate(challenge, key)}\\final\\\\queryid\\3.1"
+    {[], state} = Master.handle_packet(payload, @moh, ctx, now, state)
+    state
+  end
+
+  test "Medal of Honor: Allied Assault, under its own key", %{ctx: ctx, state: state} do
+    {[{"\\info\\\\secure\\" <> challenge, @moh}], state} =
+      Master.handle_packet(@moh_heartbeat, @moh, ctx, 0, state)
+
+    # Battlefield 1942's key doesn't answer a challenge for MOH:AA.
+    state = moh_answer(ctx, state, challenge, 0, "HpWx9z")
+    assert Store.lookup(:exmaster_gs, @moh, 0) == nil
+    state = moh_answer(ctx, state, challenge, 0, "M5Fdwc")
+
+    assert %{game: "mohaa", hostname: "exmaster-test", clients: 0, max_clients: 14} =
+             Store.lookup(:exmaster_gs, @moh, 0)
+
+    # Its heartbeat when it shuts down is the same as any other: the server
+    # is asked again within the minute's allowance, not checked.
+    {[], state} = Master.handle_packet(@moh_heartbeat, @moh, ctx, 30_000, state)
+    {[{"\\info\\\\secure\\" <> _, @moh}], state} = Master.tick(ctx, 60_000, state)
+    {[], _} = Master.tick(ctx, 70_000, state)
+    assert Store.lookup(:exmaster_gs, @moh, 70_000)
+  end
 end

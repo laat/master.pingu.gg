@@ -3,10 +3,10 @@
 # GameSpy) and shows the lists, from query.py and from qstat. See
 # README.md.
 #
-#   run.sh [service...]     q3 q2 qw bf1942 by default
+#   run.sh [service...]     q3 q2 qw bf1942 mohaa by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942}
+services=${*:-q3 q2 qw bf1942 mohaa}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
 # BF1942 reads its config from serverfiles, which the image installs into

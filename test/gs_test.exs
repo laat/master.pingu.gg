@@ -30,6 +30,10 @@ defmodule Exmaster.GSTest do
     # Three BF1942 servers on the Internet, and the one above.
     assert GS.validate("ABCDEF", "HpWx9z") == "vXrDWjx4"
     assert GS.validate("AtjJBQLjIYaWFitR", "HpWx9z") == GS.parse(@info)["validate"]
+    # A Medal of Honor: Allied Assault server (Linux, 1.12 Reborn RC3.5.1),
+    # to a challenge of its own and one of exmaster's.
+    assert GS.validate("ABCDEFGHIJKLMNOP", GS.key("mohaa")) == "iA2tel803f+Kf6Ac6g+TZQAA"
+    assert GS.validate("BCclFjTSY3zEfkmE", GS.key("mohaa")) == "avTJ59Xfa34TVbvOEjwO0gAA"
   end
 
   test "lists" do

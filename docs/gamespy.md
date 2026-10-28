@@ -1,7 +1,8 @@
-# GameSpy master protocol: Battlefield 1942
+# GameSpy master protocol: Battlefield 1942 and Medal of Honor
 
 This is GameSpy's first master protocol, from before Query and Reporting 2,
-as Battlefield 1942 speaks it, and how exmaster speaks it: `Exmaster.GS`
+as Battlefield 1942 and Medal of Honor: Allied Assault speak it, and how
+exmaster speaks it: `Exmaster.GS`
 (wire format), `Exmaster.GS.Master` (heartbeats, UDP) and
 `Exmaster.GS.ListServer` (lists, TCP). Quake 3 is in [quake3.md](quake3.md).
 The sources used here are:
@@ -17,6 +18,10 @@ The sources used here are:
   (`openspy-core`, `code/core/OS/gamespy/gsmsalg.cpp`).
 - Three Battlefield 1942 servers on the Internet, asked once each on
   2026-10-28.
+- The Medal of Honor: Allied Assault Linux dedicated server, 1.12 with
+  the Reborn patch RC3.5.1, as LinuxGSM installs it: its strings and its
+  traffic against exmaster, on 2026-10-28. See
+  [Medal of Honor](#medal-of-honor-allied-assault).
 
 ## Where Battlefield 1942 servers go
 
@@ -153,3 +158,33 @@ bytes at a time: the code it comes from regenerates its 64-byte buffer
 one byte early. `Exmaster.GS.Enctype2` is ported from BF1942-Master's
 Python and checked against it byte for byte; Battlefield 1942's own
 decoder is `ServerListReadList` in its binaries.
+
+## Medal of Honor: Allied Assault
+
+MOH:AA speaks the same protocol, as `mohaa`, with the key `M5Fdwc`
+(aluigi's gslist.cfg; the server's `\validate\` matches it). 333networks
+listed 135 servers on 2026-10-28.
+
+| Port | Use |
+|---|---|
+| UDP 12203 | server: the game |
+| UDP 12300 | server: GameSpy queries, on 0.0.0.0 whatever `net_ip` says |
+
+- **Heartbeats** go to `master.gamespy.com:27900`, compiled in, from the
+  query port: `\heartbeat\12300\gamename\mohaa\statechanged\`, with
+  `statechanged` empty, as the server starts, on the console's
+  `heartbeat` command, 300 seconds after the last, and as it shuts down.
+  The last is the same packet as the others, so a server that stops
+  stays listed until it expires. The Reborn patch's config names
+  `mohmaster.2015.com` in `sv_master1`-`3`, which doesn't resolve and
+  which the server didn't contact.
+- **`sv_gamespy 1`** has to be set before `+map`, or the server opens no
+  query socket and sends nothing. LinuxGSM's start line runs `+map` before
+  `+exec`, so setting it in the server's config is too late.
+- **The reply** to `\info\\secure\<challenge>` is one packet:
+  `\gamemode\openplaying\maxplayers\14\numplayers\0\gametype\Round-Based-Match\mapname\dm/mohdm1\hostport\12203\hostname\…\validate\…\final\\queryid\3.1`.
+- **Clients** ask for a list without `\enctype\`
+  (`\gamename\%s\gamever\%s\location\0\validate\%s\final\\queryid\1.1\`,
+  then `\list\cmp\gamename\mohaa\final\`), so they get it
+  unencrypted.
+

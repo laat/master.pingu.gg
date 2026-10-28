@@ -1,11 +1,13 @@
 # master.pingu.gg
 
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2,
-QuakeWorld and Battlefield 1942 (GameSpy). Game servers heartbeat it and
+QuakeWorld, Battlefield 1942 and Medal of Honor: Allied Assault
+(GameSpy). Game servers heartbeat it and
 clients ask it for server lists. It keeps the lists in memory (ETS) and
 nothing else: no database, no server browser, no upstream masters.
 [gameservers/](gameservers/README.md) runs real Quake 3, Quake 2,
-QuakeWorld and Battlefield 1942 servers against it in Docker.
+QuakeWorld, Battlefield 1942 and Medal of Honor servers against it in
+Docker.
 
 The protocols are described in [docs/quake3.md](docs/quake3.md),
 [docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md)
@@ -51,9 +53,9 @@ IPv4.
 
 GameSpy's master is two listeners: `gs` takes heartbeats over UDP and
 `gsl` sends lists over TCP, both from one store. They aren't in the
-default, since Battlefield 1942 heartbeats port 27900, Quake 2's master
-port, and has it compiled in: give them an address of their own, and bind
-the Quake 2 listener to another
+default, since Battlefield 1942 and MOH:AA heartbeat port 27900, Quake
+2's master port, and have it compiled in: give them an address of their
+own, and bind the Quake 2 listener to another
 (`q2:203.0.113.1:27900,gs:203.0.113.2:27900,gsl:203.0.113.2:28900`).
 Their lists hold only IPv4 too.
 
@@ -171,18 +173,18 @@ fixed table of 65,536 slots (`:atomics`), keyed by a salted hash. Forged
 heartbeats from many addresses take slots rather than growing it. A real
 server whose slot gets taken is asked again at its next heartbeat.
 
-### GameSpy (Battlefield 1942)
+### GameSpy (Battlefield 1942, Medal of Honor: Allied Assault)
 
-A heartbeat, `\heartbeat\<query port>\gamename\bfield1942`, has the
-master send `\info\\secure\<challenge>` to the server's query port.
-The server is listed once a reply from there carries the challenge's
-`\validate\`, gsmsalg under the game's key. The challenges are stateless,
-as Quake 3's: an HMAC of the address, the listener and a 5-second bucket.
-Clients get the list over TCP, as 6-byte entries encrypted with GameSpy's
-enctype 2 when they ask for it, as Battlefield 1942 does. The list
-server takes 64 connections at once, 5 an IP at once then one every 3
-seconds, gives each 5 seconds to ask and closes it after 10. See
-[docs/gamespy.md](docs/gamespy.md).
+A heartbeat, `\heartbeat\<query port>\gamename\<game>`, has the master
+send `\info\\secure\<challenge>` to the server's query port. The server
+is listed once a reply from there carries the challenge's `\validate\`,
+gsmsalg under the game's key. The challenges are stateless, as Quake
+3's: an HMAC of the address, the listener and a 5-second bucket. Clients
+get the list over TCP, as 6-byte entries encrypted with GameSpy's
+enctype 2 when they ask for it, as Battlefield 1942 does (MOH:AA
+doesn't). The list server takes 64 connections at once, 5 an IP at once
+then one every 3 seconds, gives each 5 seconds to ask and closes it
+after 10. See [docs/gamespy.md](docs/gamespy.md).
 
 ### Limits, for all of them
 

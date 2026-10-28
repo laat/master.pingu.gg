@@ -85,4 +85,5 @@ def gamespy(game):
             for i in range(0, len(entries) - 5, 6)]
 
 
-print("gs %-36s %s" % ("list cmp bfield1942", gamespy(b"bfield1942")))
+for game in [b"bfield1942", b"mohaa"]:
+    print("gs %-36s %s" % ("list cmp " + game.decode(), gamespy(game)))
