@@ -20,15 +20,18 @@ defmodule Exmaster.Q2GSTest do
   end
 
   test "a tick that raises in one master keeps the other's", %{ctx: ctx} do
+    Exmaster.Store.clear(:exmaster_q2)
     state = Q2GS.init(0)
-    {[], q2} = Exmaster.Q2.Master.tick(ctx, 1_000, state.q2)
 
-    # GameSpy's state is broken, so its tick raises.
-    broken = %{state | gs: :broken}
+    # A poll that is due, for a server no longer listed: Quake 2's tick
+    # drops it. GameSpy's state is broken, so its tick raises.
+    q2 = %{state.q2 | deferred: %{{{203, 0, 113, 1}, 27_910} => {500, :poll}}}
+    broken = %{state | q2: q2, gs: :broken}
 
     log =
       capture_log(fn ->
-        assert {[], %{q2: ^q2, gs: :broken}} = Q2GS.tick(ctx, 1_000, broken)
+        assert {[], %{q2: %{deferred: deferred}, gs: :broken}} = Q2GS.tick(ctx, 1_000, broken)
+        assert deferred == %{}
       end)
 
     assert log =~ "GameSpy: tick failed"
