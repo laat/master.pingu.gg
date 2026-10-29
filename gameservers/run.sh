@@ -1,6 +1,7 @@
 #!/bin/sh
 # Starts the test servers against an exmaster on 127.0.0.1 and shows the
-# lists, from query.py and from qstat. See README.md.
+# lists, from query.py, and from qstat and gslist where they are
+# installed. See README.md.
 #
 #   run.sh [service...]     all of them by default
 set -eu
@@ -101,4 +102,13 @@ if command -v quakestat >/dev/null; then
 	done
 	# qstat needs a CD key to answer the challenge with; nothing checks it.
 	quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902
+fi
+# aluigi's gslist (mirror.aluigi.org/papers/gslist.zip) asks for the QR2
+# lists as each game does, under its key.
+if command -v gslist >/dev/null; then
+	for g in bfvietnam:h2P9dJ ut3pc:nT2Mtz; do
+		gslist -q -n "${g%%:*}" -x 127.0.0.1:28910 -Y "${g%%:*}" "${g#*:}" -t -1 \
+			-X '\hostname\numplayers\maxplayers\mapname'
+		sleep 3.5
+	done
 fi

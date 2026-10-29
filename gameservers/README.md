@@ -50,6 +50,8 @@ quakestat -gsm,mohaa 127.0.0.1:28900
 quakestat -gsm,ut 127.0.0.1:28900
 quakestat -gs2 127.0.0.1:23100      # Battlefield Vietnam itself; query.py asks its master
 quakestat -ut3s 127.0.0.1:6500      # and UT3
+gslist -n bfvietnam -x 127.0.0.1:28910 -Y bfvietnam h2P9dJ -t -1 -X '\hostname\numplayers'  # gslist asks QR2 lists as the game
+gslist -n ut3pc -x 127.0.0.1:28910 -Y ut3pc nT2Mtz -t -1 -X '\hostname\numplayers'
 quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
@@ -359,8 +361,9 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   packets every 20. Answered with a wrong proof, or "no such uniquenick",
   it hung up, logged in again every 27 seconds, never heartbeat, and never
   tried to register a profile, with `bHasGameSpyAccount` either way.
-- Its QR2 response matched the key gslist.cfg gives UT3's Automatch,
-  `nT2Mtz`, not the one it gives `ut3pc`.
+- Its QR2 response matched `nT2Mtz`, the key gslist.cfg gives
+  "Unreal Tournament 3 (PC)", not `UebAWH`, which it gives "Unreal
+  Tournament 3"; both lines are `ut3pc`.
 - Against exmaster (`gp:127.0.0.1:29900` with the password `pingu`), it
   logged in, was verified on its next heartbeat, came back in `query.py`'s
   list asked as `ut3pc`, with the 521 bytes of settings it puts in
