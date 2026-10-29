@@ -6,8 +6,8 @@ Tournament (GameSpy), Battlefield Vietnam and Unreal Tournament 3 (GameSpy
 QR2), and Unreal Tournament 2004. Game servers heartbeat it and clients ask it for server
 lists. It keeps the lists in memory (ETS) and nothing else: no
 database, no server browser, no upstream masters.
-[gameservers/](gameservers/README.md) runs real game servers against it
-in Docker.
+[.gameservers/](.gameservers/README.md), apart from the project, runs
+real game servers against it in Docker.
 
 The protocols are described in [docs/quake3.md](docs/quake3.md),
 [docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md),

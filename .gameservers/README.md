@@ -39,9 +39,9 @@ q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0
 ue2:127.0.0.1:28902 \
   elixir --sname exmaster -S mix run --no-halt
 
-gameservers/run.sh                  # start the servers, show the lists
-gameservers/run.sh bf1942           # or some of them
-python3 -I gameservers/query.py     # the lists, as clients ask for them
+.gameservers/run.sh                 # start the servers, show the lists
+.gameservers/run.sh bf1942          # or some of them
+python3 -I .gameservers/query.py    # the lists, as clients ask for them
 quakestat -q3m 127.0.0.1:27950      # qstat (apt install qstat) asks each server too
 quakestat -rwm 127.0.0.1:27950
 quakestat -cod2m 127.0.0.1:20710        # and -cod4m 127.0.0.1:20810
@@ -55,7 +55,7 @@ gslist -n ut3pc -x 127.0.0.1:28910 -Y ut3pc nT2Mtz -t -1 -X '\hostname\numplayer
 quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
-docker compose -f gameservers/docker-compose.yml down
+docker compose -f .gameservers/docker-compose.yml down
 ```
 
 Server files are kept in `data/` (ignored by git): about 1.3 GB for the
