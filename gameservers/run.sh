@@ -1,6 +1,7 @@
 #!/bin/sh
 # Starts the test servers against an exmaster on 127.0.0.1 and shows the
-# lists, from query.py and from qstat. See README.md.
+# lists, from query.py, and from qstat and gslist where they are
+# installed. See README.md.
 #
 #   run.sh [service...]     all of them by default
 set -eu
