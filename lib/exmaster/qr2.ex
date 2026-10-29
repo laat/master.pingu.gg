@@ -28,9 +28,10 @@ defmodule Exmaster.QR2 do
   # The games the master lists, by the gamename their servers heartbeat,
   # with their secret key and the query port they use by default. The keys
   # are in aluigi's gslist.cfg, and the games' servers answer challenges
-  # with them: Unreal Tournament 3's, ut3pc, with the key gslist.cfg gives
-  # its Automatch (ut3pcam), not the one it gives ut3pc. UT3's servers log
-  # into GameSpy before they heartbeat (`Exmaster.GP`).
+  # with them. gslist.cfg has two for Unreal Tournament 3's ut3pc,
+  # "Unreal Tournament 3" UebAWH and "Unreal Tournament 3 (PC)" nT2Mtz;
+  # its servers answer with the second. They log into GameSpy before they
+  # heartbeat (`Exmaster.GP`).
   @games %{"bfvietnam" => {"h2P9dJ", 23_000}, "ut3pc" => {"nT2Mtz", 6_500}}
 
   # Games whose clients ask for lists but that list no servers of their

@@ -17,7 +17,10 @@ in [gamespy.md](gamespy.md). The sources used here are:
   `sb_crypt.c`), in https://github.com/nitrocaster/GameSpy.
 - OpenSpy's masters (https://github.com/openspy/openspy-core, `code/qr`
   and `code/serverbrowsing`), which players use now.
-- aluigi's gslist.cfg, for the keys.
+- aluigi's gslist.cfg, for the keys, and gslist 0.8.11a itself
+  (https://mirror.aluigi.org/papers/gslist.zip), which got exmaster's
+  lists, from servers a test client registered: `bfvietnam`, asking as
+  it and as GameSpy Arcade, and `ut3pc`, with the fields asked for.
 - The UT3 Linux dedicated server, patch 5, as LinuxGSM installs it
   (patched to OpenSpy's hosts): its strings and its traffic, against
   logging stubs for each GameSpy service and then against exmaster, on
@@ -170,8 +173,9 @@ the error.
 ## Unreal Tournament 3
 
 UT3 speaks QR2 and server browsing as `ut3pc`, with the key `nT2Mtz`:
-gslist.cfg gives `ut3pc` `UebAWH` and its Automatch (`ut3pcam`)
-`nT2Mtz`, and the server's response matched the second. Its query port is
+gslist.cfg has two lines for `ut3pc`, "Unreal Tournament 3" with
+`UebAWH` and "Unreal Tournament 3 (PC)" with `nT2Mtz`, and the server's
+response matched the second. Its query port is
 6500, and its QR2 heartbeats come from it.
 
 LinuxGSM's package patches the binary from GameSpy's hosts to OpenSpy's:
