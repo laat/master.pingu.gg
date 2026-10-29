@@ -2,4 +2,4 @@
 /deps/
 /cover/
 erl_crash.dump
-/gameservers/data/
+/.gameservers/data/

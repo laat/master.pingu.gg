@@ -6,7 +6,7 @@ defmodule Exmaster.SBTest do
 
   @plain "The quick brown fox jumps over the lazy dog, twice: The quick brown fox."
 
-  # Encrypted here, and decrypted back by gameservers/query.py's
+  # Encrypted here, and decrypted back by .gameservers/query.py's
   # GOACrypt, which decrypts OpenSpy's lists.
   @cipher Base.decode16!(
             "20519E91B0CCD5428F71D5DFB963C0028BD2047D007E451C31C651C2D8A16CF167E665A38DF28F76987730B6DB4A85FE62E0F749DACE9190089BA87341F9C07F652F06A198DDCCA2"

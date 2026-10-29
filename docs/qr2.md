@@ -30,7 +30,7 @@ in [gamespy.md](gamespy.md). The sources used here are:
   Battlelog's GameSpy service, and sokie's Section 8 emulator.
 - OpenSpy's list server, `master.openspy.net:28910`, asked once for
   `bfvietnam` on 2026-10-28: 11 servers. The client in
-  `gameservers/query.py` decrypted that list, and then exmaster's.
+  `.gameservers/query.py` decrypted that list, and then exmaster's.
 
 ## Where Battlefield Vietnam servers go
 
