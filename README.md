@@ -33,6 +33,10 @@ _build/prod/rel/exmaster/bin/exmaster rpc 'IO.inspect(Exmaster.servers(:q3))'
 The release includes the Erlang runtime, so it has to be built on the
 OS and architecture it runs on.
 
+The TCP masters together take up to about 8,800 connections at once, a
+file descriptor each, so the process needs a higher limit than the usual
+1,024: `LimitNOFILE=65536` in a systemd unit, or `ulimit -n 65536`.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb`, `gp`, `ue2` and `vs` |
