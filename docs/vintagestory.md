@@ -105,8 +105,9 @@ request, and is closed after the reply.
   players. One for a server that isn't listed, because it expired or
   exmaster restarted, gets `invalid`, and the game registers again. With
   several nodes, a heartbeat for a server another node lists has this
-  node list it, with what that node has, so a server whose heartbeats go
-  to another node than its registration did stays listed.
+  node list it, so a server whose heartbeats go to another node than its
+  registration did stays listed. A heartbeat keeps the name, mods and
+  the rest from the server's latest registration, on whichever node.
 - An unregistration names no server, so 10 seconds after it, when the
   server should have closed its port, exmaster connects to each server
   it lists at that IP, and drops those that don't take the connection

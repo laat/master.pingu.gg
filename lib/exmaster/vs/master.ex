@@ -11,8 +11,9 @@ defmodule Exmaster.VS.Master do
   reach aren't listed. Its token is its port, and a heartbeat from the
   same IP keeps it listed for 5 minutes more; the game heartbeats every 2.
   A heartbeat for a server that isn't listed gets `invalid`, and the game
-  registers again. One that another node lists is taken over, with what
-  that node has.
+  registers again. One that another node lists is taken over. What the
+  server said about itself comes from its latest registration, on
+  whichever node.
 
   The game unregisters without its token, so the master can't tell which
   of the servers at an IP stopped. 10 seconds later it connects to each
@@ -374,7 +375,9 @@ defmodule Exmaster.VS.Master do
     end
   end
 
-  defp register(server, ip, conf, now) do
+  # A write that finds the entry changed since it was read starts over,
+  # from what is there now.
+  defp register(server, ip, conf, now, tries \\ 3) do
     addr = {ip, server.port}
     existing = Store.lookup(conf.store, addr, now)
 
@@ -388,14 +391,18 @@ defmodule Exmaster.VS.Master do
 
       true ->
         players = if existing, do: existing.clients, else: 0
+        now = Exmaster.now()
 
-        case put(addr, server, players, existing, conf, Exmaster.now()) do
+        case put(addr, server, players, now, existing, conf, now) do
           :ok ->
             unless existing,
               do:
                 Logger.info("vs: #{Addr.to_string(addr)} listed, version=#{server.game_version}")
 
             VS.reply("ok", VS.token(server.port))
+
+          {:error, :changed} when tries > 1 ->
+            register(server, ip, conf, now, tries - 1)
 
           {:error, reason} ->
             Logger.warning("vs: #{Addr.to_string(addr)} not listed: #{reason}")
@@ -404,25 +411,35 @@ defmodule Exmaster.VS.Master do
     end
   end
 
-  defp heartbeat(hb, ip, conf, now) do
+  # What the server said about itself comes from its latest registration,
+  # here or on another node: a server listed on two nodes may have
+  # registered again on the other, with new settings.
+  defp heartbeat(hb, ip, conf, now, tries \\ 3) do
     addr = {ip, hb.port}
     existing = Store.lookup(conf.store, addr, now)
 
-    case existing || Store.lookup_replica(conf.store, addr, now) do
+    case latest(existing, Store.lookup_replica(conf.store, addr, now)) do
       nil ->
         VS.reply("invalid", nil)
 
       listed ->
-        case put(addr, listed.server, hb.players, existing, conf, now) do
+        case put(addr, listed.server, hb.players, listed.verified, existing, conf, now) do
           :ok -> VS.reply("ok", nil)
+          {:error, :changed} when tries > 1 -> heartbeat(hb, ip, conf, now, tries - 1)
           {:error, reason} -> VS.reply("error", "not listed: #{reason}")
         end
     end
   end
 
+  defp latest(nil, b), do: b
+  defp latest(a, nil), do: a
+  defp latest(a, b), do: if(b.verified > a.verified, do: b, else: a)
+
   # Writes the entry if the server's current one is still what it was read
-  # as: another request may have written it in between.
-  defp put(addr, server, players, existing, conf, now, tries \\ 3) do
+  # as: another request may have written it in between. verified is when
+  # the server registered what server holds; the store moves it onto each
+  # node's clock, as it does seen and expires.
+  defp put(addr, server, players, verified, existing, conf, now) do
     entry = %{
       game: @game,
       version: server.game_version,
@@ -432,18 +449,12 @@ defmodule Exmaster.VS.Master do
       server: server,
       json: VS.encode_entry(addr, server, players),
       via: conf.owner,
+      verified: verified,
       seen: now,
       expires: now + conf.ttl
     }
 
-    case Store.put(conf.store, addr, entry, now, existing) do
-      {:error, :changed} when tries > 1 ->
-        existing = Store.lookup(conf.store, addr, now)
-        put(addr, server, players, existing, conf, now, tries - 1)
-
-      result ->
-        result
-    end
+    Store.put(conf.store, addr, entry, now, existing)
   end
 
   # Without a port, every server this node lists at the IP is checked.
