@@ -6,7 +6,8 @@ defmodule Exmaster.Q2.Master do
   `status` echoes nothing the master sent. A heartbeat from an address
   that isn't listed gets `status`, and the address is noted (see "Whom the
   master asked" below); a `print` is only taken from an address asked in
-  the last 10 seconds, once. The server is listed for `server_ttl` after
+  the last 10 seconds, once, and one that isn't a status doesn't count.
+  The server is listed for `server_ttl` after
   each reply, and each heartbeat has it asked again (see "Asking listed
   servers again" below). The heartbeat's own copy of the status isn't
   used: heartbeats can be forged with a listed server's address.
@@ -15,7 +16,10 @@ defmodule Exmaster.Q2.Master do
   registration take a forged heartbeat and a forged reply. It is no proof
   that a server is at its address, as a Quake 3 challenge is: a blind
   spoofer can make up the reply. The per-IP limit keeps what one can list
-  under someone else's IP to `max_per_ip` ports.
+  under someone else's IP to `max_per_ip` ports, but spread over many IPs
+  a spoofer can fill the list to `max_servers`, and can change what a
+  listed server says until its next reply. Leave `q2` out of `listen` on
+  a network that doesn't drop packets with forged source addresses.
   """
   @behaviour Exmaster.Protocol
 
@@ -111,9 +115,13 @@ defmodule Exmaster.Q2.Master do
     {Q2.status(), addr}
   end
 
+  # The slot is only taken by a reply that is a status: a forged one that
+  # isn't would use up the server's own, and a shutdown check drop it.
   defp print(payload, from, ctx, now, state) do
-    with true <- take_asked(state.pending, from, now),
+    with i when i != nil <- asked_slot(state.pending, from, now),
          {info, clients} when map_size(info) > 0 <- Q2.parse_status(payload) do
+      :atomics.put(state.pending.slots, i, 0)
+
       case register(info, clients, from, ctx, now) do
         {:ok, :added, entry} ->
           registered(from, now)
@@ -308,17 +316,13 @@ defmodule Exmaster.Q2.Master do
     :atomics.put(p.slots, slot(p, addr), tag(p, addr) <<< @time_bits ||| now - p.t0 + 1)
   end
 
-  defp take_asked(p, addr, now) do
+  # The slot addr was asked from in the last 10 seconds, or nil.
+  defp asked_slot(p, addr, now) do
     i = slot(p, addr)
     v = :atomics.get(p.slots, i)
     sent = (v &&& (1 <<< @time_bits) - 1) + p.t0 - 1
 
-    if v != 0 and v >>> @time_bits == tag(p, addr) and now - sent <= @window do
-      :atomics.put(p.slots, i, 0)
-      true
-    else
-      false
-    end
+    if v != 0 and v >>> @time_bits == tag(p, addr) and now - sent <= @window, do: i
   end
 
   defp slot(p, addr), do: :erlang.phash2({p.salt, addr}, @slots) + 1

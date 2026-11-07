@@ -98,6 +98,15 @@ defmodule Exmaster.QWTest do
     assert Store.lookup(:exmaster_qw, @server, 71_000) == nil
   end
 
+  test "a reply that isn't a status doesn't use up the server's", %{ctx: ctx, state: state} do
+    state = register(ctx, state, @server, @info)
+    {[{@status, @server}], state} = Master.handle_packet("C\n", @server, ctx, 60_000, state)
+    {[], state} = Master.handle_packet(oob("nnot a status\n"), @server, ctx, 60_050, state)
+    {[], state} = Master.handle_packet(reply(@info), @server, ctx, 60_100, state)
+    {[], _} = Master.tick(ctx, 70_000, state)
+    assert Store.lookup(:exmaster_qw, @server, 70_000)
+  end
+
   test "a server that restarts during a check is asked again when the check drops it", %{
     ctx: ctx,
     state: state

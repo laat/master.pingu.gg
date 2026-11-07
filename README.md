@@ -201,11 +201,15 @@ had it asked again. Other rules:
 Their servers heartbeat with no challenge, and the reply to `status`
 echoes nothing. A heartbeat from an address that isn't listed gets
 `status`. A reply is only taken from an address asked in the last 10
-seconds, once. That keeps out servers that can't be reached, and makes a
+seconds, once, and one that isn't a status doesn't count, so a forged
+one can't use up a real server's answer to a shutdown check. That keeps out servers that can't be reached, and makes a
 forged registration take two forged packets. It doesn't prove a server
 is at its address the way a Quake 3 challenge does, since a blind spoofer
 can make up the reply. `max_per_ip` keeps what one can list under someone
-else's IP to 32 ports.
+else's IP to 32 ports, but spread over many IPs a spoofer can fill the
+list to `max_servers`, and can change what a listed server says until its
+next reply. Leave `q2` and `qw` out of `listen` on a network that doesn't
+drop packets with forged source addresses.
 
 Each of the two masters remembers whom it asked in a
 fixed table of 65,536 slots (`:atomics`), keyed by a salted hash. Forged
