@@ -212,6 +212,10 @@ defmodule Exmaster.UE2.Master do
     else
       _ -> :gen_tcp.close(sock)
     end
+  catch
+    # Whatever else goes wrong closes this connection, not the acceptor and
+    # with it the listener: RateLimit's table is gone while it restarts.
+    _, _ -> :gen_tcp.close(sock)
   end
 
   defp serve(conf) do
