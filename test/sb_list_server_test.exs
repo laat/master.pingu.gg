@@ -3,7 +3,7 @@ defmodule Exmaster.SB.ListServerTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
 
-  alias Exmaster.{RateLimit, SB, Store}
+  alias Exmaster.{ListGate, RateLimit, SB, Store}
   alias Exmaster.SB.{Crypt, ListServer}
 
   @localhost {127, 0, 0, 1}
@@ -116,6 +116,57 @@ defmodule Exmaster.SB.ListServerTest do
     record = <<0xFF, name::binary, 0>>
     assert :binary.matches(rest, record) |> length() == 2_000
     assert binary_part(rest, byte_size(rest), -5) == <<0, 0xFF, 0xFF, 0xFF, 0xFF>>
+  end
+
+  # Holds all of Exmaster.ListGate but room, as another client's lists
+  # would, until the returned function is called or the test ends.
+  defp fill_list_gate(room \\ 0) do
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        ref = Process.monitor(parent)
+        send(parent, {:gate, ListGate.admit({192, 0, 2, 1}, ListGate.capacity() - room)})
+
+        receive do
+          :stop -> :ok
+          {:DOWN, ^ref, _, _, _} -> :ok
+        end
+      end)
+
+    assert_receive {:gate, :ok}
+
+    fn ->
+      send(holder, :stop)
+      wait_for(fn -> :sys.get_state(ListGate).total == 0 end)
+    end
+  end
+
+  defp wait_for(f, tries \\ 100) do
+    unless f.() or tries == 0 do
+      Process.sleep(10)
+      wait_for(f, tries - 1)
+    end
+  end
+
+  test "a list is refused while the lists of all TCP masters hold too many servers", %{
+    port: port
+  } do
+    release = fill_list_gate()
+    assert ask(port, request("bfvietnam", "bfvietnam", "\\hostname"), "h2P9dJ") == {:raw, ""}
+    release.()
+
+    assert <<127, 0, 0, 1, 23_000::16, _::binary>> =
+             ask(port, request("bfvietnam", "bfvietnam", "\\hostname"), "h2P9dJ")
+  end
+
+  # All of the game's servers are read, whatever most the client asks for.
+  test "a list weighs every server of its game, however few it asks for", %{port: port} do
+    release = fill_list_gate(1)
+    request = request("bfvietnam", "bfvietnam", "", 128, <<1::little-32>>)
+    assert ask(port, request, "h2P9dJ") == {:raw, ""}
+    release.()
+    assert <<127, 0, 0, 1, 23_000::16, _::binary>> = ask(port, request, "h2P9dJ")
   end
 
   test "a game it doesn't list, and a game asking that it doesn't know", %{port: port} do

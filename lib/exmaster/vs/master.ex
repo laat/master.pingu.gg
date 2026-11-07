@@ -24,12 +24,14 @@ defmodule Exmaster.VS.Master do
   listener process owns the socket; an acceptor hands each connection to
   a task under a `Task.Supervisor`. 256 at once, 8 from an IP, closed 15
   seconds after they open; time a list waits for the reply budget doesn't
-  count, up to a minute of it (`Exmaster.Paid`).
+  count, up to a minute of it (`Exmaster.Paid`). A list is refused while
+  the lists of all TCP masters hold too many servers
+  (`Exmaster.ListGate`).
   """
   use GenServer
   require Logger
 
-  alias Exmaster.{Addr, Paid, RateLimit, Store, VS}
+  alias Exmaster.{Addr, ListGate, Paid, RateLimit, Store, VS}
 
   @game "vintagestory"
 
@@ -310,18 +312,22 @@ defmodule Exmaster.VS.Master do
       "Content-Length: #{length}\r\nConnection: close\r\n\r\n"
   end
 
-  # The list. The least a reply costs is reserved before the list is
-  # made, as the other masters reserve it; the rest is paid a chunk at a
-  # time, waiting for the budget when it runs out, so a list larger than
-  # its burst still goes out, at its rate. The time it waits moves the
+  # The list. The least a reply costs is reserved, as the other masters
+  # reserve it, and the list admitted (Exmaster.ListGate) at the servers
+  # it could hold, before the list is made; once made, it is admitted
+  # again at the servers it holds. The rest is paid a chunk at a time,
+  # waiting for the budget when it runs out, so a list larger than its
+  # burst still goes out, at its rate. The time it waits moves the
   # connection's end, which Exmaster.Paid keeps from here on in place of
   # the kill timer.
   defp list(sock, ip, store, {kill, ends}) do
     now = Exmaster.now()
 
     with {:limit, :ok} <- {:limit, RateLimit.take({:vs, :list, ip}, @list_limit, 1, now)},
-         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)} do
-      entries = for {_, entry} <- Enum.sort(Store.all(store, now, @game)), do: entry.json
+         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)},
+         {:gate, :ok} <- {:gate, ListGate.admit(ip, Store.count(store, now, @game))},
+         entries = for({_, entry} <- Enum.sort(Store.all(store, now, @game)), do: entry.json),
+         {:gate, :ok} <- {:gate, ListGate.admit(ip, length(entries))} do
       parts = VS.list(entries)
       length = parts |> Enum.map(&IO.iodata_length/1) |> Enum.sum()
       Logger.debug("vs: list for #{:inet.ntoa(ip)}, #{length(entries)} servers")
@@ -333,6 +339,10 @@ defmodule Exmaster.VS.Master do
     else
       {:limit, _} ->
         respond(sock, 429, VS.reply("error", "too many requests"))
+
+      {:gate, _} ->
+        Logger.debug("vs: a list over the lists held at once")
+        respond(sock, 503, VS.reply("error", "busy"))
 
       {:budget, _} ->
         Logger.debug("vs: a list over the reply budget")

@@ -168,7 +168,12 @@ the error.
   seconds; 5 seconds and 1 KB for the request; 10 seconds in all, but
   for the time the list waits for the reply budget, which it pays 64 KB
   at a time (`Exmaster.Paid`), so a list larger than the budget's burst
-  still goes out.
+  still goes out. A list is refused while the lists being made and sent by
+  all TCP masters together would hold more than 16,384 servers, a server
+  counting once more for every 8 fields asked for, or one IP's more than
+  4,096 but for its first list; a list larger than 16,384 goes out when
+  it is the only one (`Exmaster.ListGate`). All of the game's servers
+  count, whatever most the client asks for.
 
 ## Unreal Tournament 3
 

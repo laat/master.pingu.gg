@@ -78,7 +78,9 @@ defmodule Exmaster.SBTest do
        %{local_ip: {192, 168, 1, 26}, local_port: 23_101, fields: %{"hostname" => "two"}}}
     ]
 
-    assert IO.iodata_to_binary(SB.encode_list(["hostname", "numplayers"], servers, 23_000)) ==
+    assert IO.iodata_to_binary(
+             Enum.to_list(SB.encode_list(["hostname", "numplayers"], servers, 23_000))
+           ) ==
              <<2, 0, "hostname", 0, 0, "numplayers", 0, 0>> <>
                <<64, 198, 51, 100, 1, 0xFF, "one", 0, 0xFF, "3", 0>> <>
                <<64 + 16 + 2 + 32, 198, 51, 100, 2, 23_100::16, 192, 168, 1, 26, 23_101::16, 0xFF,

@@ -27,12 +27,13 @@ defmodule Exmaster.UE2.Master do
   many open as it can list servers (`max_per_ip`), and 8 more.
   Connections are closed 15 seconds after they open, but for servers'
   once their handshake is done; time a list waits for the reply budget
-  doesn't count, up to a minute of it.
+  doesn't count, up to a minute of it. A list is refused while the lists
+  of all TCP masters hold too many servers (`Exmaster.ListGate`).
   """
   use GenServer
   require Logger
 
-  alias Exmaster.{Addr, Paid, RateLimit, Store, UE2}
+  alias Exmaster.{Addr, ListGate, Paid, RateLimit, Store, UE2}
 
   @game "ut2004"
   @server "UT2K4SERVER"
@@ -417,33 +418,45 @@ defmodule Exmaster.UE2.Master do
     end
   end
 
-  # The list: a frame with the count and 1, then a frame a server. The
-  # least a reply costs is reserved before the list is made, as the other
-  # masters reserve it; the rest is paid a chunk at a time, waiting for
-  # the budget when it runs out, so a list larger than its burst still
-  # goes out, at its rate. The time it waits moves the connection's end,
-  # which Exmaster.Paid keeps from here on in place of the kill timer.
+  # The list: a frame with the count and 1, then a frame a server, made as
+  # it is sent. The least a reply costs is reserved, as the other masters
+  # reserve it, and the list admitted (Exmaster.ListGate) at the servers
+  # it could hold, before the list is made; once made, it is admitted
+  # again at the servers it holds. The rest is paid a chunk at a time,
+  # waiting for the budget when it runs out, so a list larger than its
+  # burst still goes out, at its rate. The time it waits moves the
+  # connection's end, which Exmaster.Paid keeps from here on in place of
+  # the kill timer.
   defp list(sock, ip, query, store, {kill, ends}) do
     now = Exmaster.now()
 
     with {:ok, filters} <- UE2.parse_query(query),
          {:limit, :ok} <- {:limit, RateLimit.take({:ue2, :list, ip}, @list_limit, 1, now)},
-         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)} do
-      entries =
-        for {addr, entry} <- Enum.sort(Store.all(store, now, @game)),
-            UE2.matches?(entry, filters),
-            do: UE2.frame(UE2.encode_entry(addr, entry))
-
-      Logger.debug("ue2: list for #{:inet.ntoa(ip)}, #{length(entries)} servers")
+         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)},
+         {:gate, :ok} <- {:gate, ListGate.admit(ip, Store.count(store, now, @game))},
+         servers = matching(store, now, filters),
+         {:gate, :ok} <- {:gate, ListGate.admit(ip, length(servers))} do
+      Logger.debug("ue2: list for #{:inet.ntoa(ip)}, #{length(servers)} servers")
 
       :timer.cancel(kill)
 
-      with :ok <- send_frame(sock, <<length(entries)::little-32, 1>>),
-           do: Paid.send(sock, Paid.chunks(entries), RateLimit.min_reply(), ends)
+      frames =
+        Stream.map(servers, fn {addr, entry} -> UE2.frame(UE2.encode_entry(addr, entry)) end)
+
+      with :ok <- send_frame(sock, <<length(servers)::little-32, 1>>),
+           do: Paid.send(sock, Paid.chunks(frames), RateLimit.min_reply(), ends)
     else
+      {:gate, _} -> Logger.debug("ue2: a list over the lists held at once")
       {:budget, _} -> Logger.debug("ue2: a list over the reply budget")
       _ -> :ok
     end
+  end
+
+  # The servers that pass the filters, in order.
+  defp matching(store, now, filters) do
+    for {addr, entry} <- Enum.sort(Store.all(store, now, @game)),
+        UE2.matches?(entry, filters),
+        do: {addr, entry}
   end
 
   defp send_frame(sock, payload), do: :gen_tcp.send(sock, UE2.frame(payload))
