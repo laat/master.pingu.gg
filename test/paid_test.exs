@@ -16,11 +16,16 @@ defmodule Exmaster.PaidTest do
 
   test "chunks of 64 KB at most, or one part" do
     part = :binary.copy("x", 30_000)
-    assert [{[^part, ^part], 60_000}, {[^part], 30_000}] = Paid.chunks([part, part, part])
+
+    assert [{[^part, ^part], 60_000}, {[^part], 30_000}] =
+             Enum.to_list(Paid.chunks([part, part, part]))
 
     big = :binary.copy("y", 70_000)
-    assert [{["a"], 1}, {[^big], 70_000}, {["b"], 1}] = Paid.chunks(["a", big, "b"])
-    assert Paid.chunks([]) == []
+
+    assert [{["a"], 1}, {[^big], 70_000}, {["b"], 1}] =
+             Enum.to_list(Paid.chunks(["a", big, "b"]))
+
+    assert Enum.to_list(Paid.chunks([])) == []
   end
 
   # On loopback the kernel buffers more than a test can send, so a slow

@@ -132,12 +132,14 @@ defmodule Exmaster.SB do
   The list after the head, in parts: the fields asked for and no popular
   values, a record a server, the end. Values are text; a server's own
   port is given where it isn't the game's default, its address on its own
-  network where it said one.
+  network where it said one. A stream: a record is made as it is sent.
   """
   def encode_list(fields, servers, default_port) do
-    [[length(fields), Enum.map(fields, &[0, &1, 0]), 0]] ++
-      Enum.map(servers, &record(&1, fields, default_port)) ++
+    Stream.concat([
+      [[length(fields), Enum.map(fields, &[0, &1, 0]), 0]],
+      Stream.map(servers, &record(&1, fields, default_port)),
       [<<0, 0xFF, 0xFF, 0xFF, 0xFF>>]
+    ])
   end
 
   defp record({{{a, b, c, d}, port}, entry}, fields, default_port) do

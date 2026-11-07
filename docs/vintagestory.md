@@ -137,7 +137,10 @@ costs is reserved before it is made; the rest is paid 64 KB at a time,
 waiting when the budget is spent, and the time it waits doesn't count
 against the 15 seconds, up to a minute of it. The official list is 4 MB
 for 2,169 servers, most of it mods, and the client doesn't take it
-compressed.
+compressed. A list is refused with 503 while the lists being made and
+sent by all TCP masters together would hold more than 16,384 servers,
+or one IP's more than 4,096 but for its first list; a list larger than
+16,384 goes out when it is the only one (`Exmaster.ListGate`).
 
 ## Not done
 

@@ -3,7 +3,7 @@ defmodule Exmaster.UE2.MasterTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
 
-  alias Exmaster.{RateLimit, Store, UE2}
+  alias Exmaster.{ListGate, RateLimit, Store, UE2}
   alias Exmaster.UE2.Master
 
   @localhost {127, 0, 0, 1}
@@ -347,6 +347,69 @@ defmodule Exmaster.UE2.MasterTest do
     end
 
     assert length(list(port)) == 5_000
+  end
+
+  # Holds all of Exmaster.ListGate but room, as another client's lists
+  # would, until the returned function is called or the test ends.
+  defp fill_list_gate(room \\ 0) do
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        ref = Process.monitor(parent)
+        send(parent, {:gate, ListGate.admit({192, 0, 2, 1}, ListGate.capacity() - room)})
+
+        receive do
+          :stop -> :ok
+          {:DOWN, ^ref, _, _, _} -> :ok
+        end
+      end)
+
+    assert_receive {:gate, :ok}
+
+    fn ->
+      send(holder, :stop)
+      wait_for(fn -> :sys.get_state(ListGate).total == 0 end)
+    end
+  end
+
+  defp wait_for(f, tries \\ 100) do
+    unless f.() or tries == 0 do
+      Process.sleep(10)
+      wait_for(f, tries - 1)
+    end
+  end
+
+  test "a list is refused while the lists of all TCP masters hold too many servers" do
+    port = start()
+    now = Exmaster.now()
+
+    entry = %{
+      game: "ut2004",
+      query_port: 7758,
+      hostname: "exmaster test",
+      map: "DM-Rankin",
+      gametype: "xDeathMatch",
+      skill: "0",
+      clients: 0,
+      max_clients: 16,
+      flags: 0,
+      filters: %{},
+      mutators: [],
+      via: self(),
+      conn: 0,
+      seen: now,
+      expires: now + 60_000
+    }
+
+    :ok = Store.put(@store, {@localhost, 7757}, entry, now, nil)
+
+    release = fill_list_gate()
+    s = ask(port, <<0, 0>>)
+    assert :gen_tcp.recv(s, 0, 1_000) == {:error, :closed}
+    release.()
+
+    assert list(port) == [{@localhost, 7757, 7758, "exmaster test"}]
   end
 
   test "frames over 32 KB close the connection; a heartbeat in the hello's place is denied" do

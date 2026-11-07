@@ -4,6 +4,7 @@ defmodule Exmaster.Application do
 
       Exmaster.Supervisor
       ├── Exmaster.RateLimit        token buckets, in ETS
+      ├── Exmaster.ListGate         the servers TCP lists hold at once
       ├── Exmaster.PG               the pg scope the stores share their lists in
       ├── Exmaster.Store            :exmaster_q3, :exmaster_q2, :exmaster_qw,
       │                             :exmaster_gs, :exmaster_qr2, :exmaster_ue2,
@@ -49,6 +50,7 @@ defmodule Exmaster.Application do
     children =
       [
         Exmaster.RateLimit,
+        Exmaster.ListGate,
         %{id: Exmaster.PG, start: {:pg, :start_link, [Exmaster.Store.scope()]}}
       ] ++
         stores ++

@@ -15,12 +15,13 @@ defmodule Exmaster.SB.ListServer do
   a task under a `Task.Supervisor` that takes at most 64 at once. A task
   has 5 seconds to read the request and is killed, with its socket, 10
   seconds after it started, but for the time its list waits for the reply
-  budget (`Exmaster.Paid`).
+  budget (`Exmaster.Paid`). A list is refused while the lists of all TCP
+  masters hold too many servers (`Exmaster.ListGate`).
   """
   use GenServer
   require Logger
 
-  alias Exmaster.{Paid, QR2, RateLimit, SB, Store}
+  alias Exmaster.{ListGate, Paid, QR2, RateLimit, SB, Store}
   alias Exmaster.SB.Crypt
 
   @max_connections 64
@@ -119,17 +120,21 @@ defmodule Exmaster.SB.ListServer do
 
   # A client that has gone (a scanner that connects and resets) makes a
   # recv or peername fail, which ends the conversation like any refusal.
-  # The reply budget is reserved before the list is made and encrypted, as
-  # the other masters reserve it.
+  # The reply budget is reserved, as the other masters reserve it, and the
+  # list admitted (Exmaster.ListGate) at the servers it could hold, before
+  # the list is made and encrypted; once made, it is admitted again at the
+  # servers it holds.
   defp converse(sock, store, {kill, ends}) do
     with {:ok, {ip, _}} <- :inet.peername(sock),
          {:ok, request} <- read(sock, "", Exmaster.now() + @timeout),
          {:ok, req} <- SB.parse_request(request),
          key when key != nil <- QR2.client_key(req.from),
          now = Exmaster.now(),
-         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)} do
+         {:budget, :ok} <- {:budget, RateLimit.reserve_reply(now)},
+         weight = weight(req, Store.count(store, now, req.game)),
+         {:gate, :ok} <- {:gate, ListGate.admit(ip, weight)},
+         {:gate, {parts, count}} <- {:gate, answer(req, req.source_ip || ip, store, now, ip)} do
       {header, crypt} = SB.crypt(req.challenge, key)
-      {parts, count} = answer(req, req.source_ip || ip, store, now)
       Logger.debug("sb: #{inspect(req.game)} list for #{:inet.ntoa(ip)}, #{count} servers")
       :timer.cancel(kill)
 
@@ -150,14 +155,22 @@ defmodule Exmaster.SB.ListServer do
         ends
       )
     else
+      {:gate, _} -> Logger.debug("sb: a list over the lists held at once")
       {:budget, _} -> Logger.debug("sb: a list over the reply budget")
       _ -> :ok
     end
   end
 
+  # Servers' weight, and for every 8 fields asked for a server's worth
+  # more: a record holds a value a field. All of the game's servers are
+  # read, whatever most the client asked for.
+  defp weight(%{list?: false}, _servers), do: 0
+  defp weight(req, servers), do: servers * (1 + div(length(req.fields), 8))
+
   # The answer in parts, a server's record each, for Exmaster.Paid to
-  # gather into chunks.
-  defp answer(req, ip, store, now) do
+  # gather into chunks, or :busy if the servers read are more than the
+  # lists held at once have room for.
+  defp answer(req, ip, store, now, peer) do
     case QR2.default_port(req.game) do
       nil ->
         {[SB.error(ip, "This master doesn't list #{req.game}.")], 0}
@@ -169,7 +182,10 @@ defmodule Exmaster.SB.ListServer do
           |> Enum.sort()
           |> then(&if(req.max, do: Enum.take(&1, req.max), else: &1))
 
-        {[SB.head(ip, port) | SB.encode_list(req.fields, servers, port)], length(servers)}
+        with :ok <- ListGate.admit(peer, weight(req, length(servers))),
+             do:
+               {Stream.concat([[SB.head(ip, port)], SB.encode_list(req.fields, servers, port)]),
+                length(servers)}
 
       port ->
         {[SB.head(ip, port)], 0}

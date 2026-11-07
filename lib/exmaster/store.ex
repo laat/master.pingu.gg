@@ -100,6 +100,18 @@ defmodule Exmaster.Store do
     end
   end
 
+  @doc """
+  The most servers all/3 could give for game, counted without copying
+  them: this node's and the other nodes', a server two nodes list
+  counted twice.
+  """
+  def count(store, now, game) do
+    guards = [{:>, :"$2", now} | game_guard(game)]
+
+    :ets.select_count(store, [{@local, guards, [true]}]) +
+      :ets.select_count(replicas(store), [{@replica, guards, [true]}])
+  end
+
   @doc "The number of servers this node lists itself."
   def local_count(store, now),
     do: :ets.select_count(store, [{{:_, :"$1", :_, :_}, [{:>, :"$1", now}], [true]}])

@@ -15,9 +15,13 @@ defmodule Exmaster.Paid do
   @chunk 65_536
   @max_wait 60_000
 
-  @doc "Parts (iodata each) in chunks of at most 64 KB, or one part, with their sizes."
+  @doc """
+  Parts (iodata each) in chunks of at most 64 KB, or one part, with their
+  sizes: a stream, so parts that are a stream too are only made as their
+  chunk is sent.
+  """
   def chunks(parts) do
-    Enum.chunk_while(
+    Stream.chunk_while(
       parts,
       {[], 0},
       fn part, {acc, size} ->

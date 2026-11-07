@@ -176,8 +176,9 @@ Exmaster.Supervisor
   and GameSpy's login use too, and each master has its
   own copy of the code that decides when a listed server is asked again;
   Quake 2 and QuakeWorld each have their own table of whom they asked.
-  What is shared has no protocol in it: sockets, stores, rate limits, and
-  sending a list over TCP within the reply budget (`Exmaster.Paid`).
+  What is shared has no protocol in it: sockets, stores, rate limits,
+  sending a list over TCP within the reply budget (`Exmaster.Paid`), and
+  the bound on the servers TCP lists hold at once (`Exmaster.ListGate`).
 
 ### Quake 3
 
