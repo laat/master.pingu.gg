@@ -413,16 +413,20 @@ defmodule Exmaster.VS.Master do
 
   # What the server said about itself comes from its latest registration,
   # here or on another node: a server listed on two nodes may have
-  # registered again on the other, with new settings.
+  # registered again on another, with new settings. Each copy's verified
+  # says when, so the latest is the copy with the greatest, which may be
+  # neither this node's nor the one that expires last.
   defp heartbeat(hb, ip, conf, now, tries \\ 3) do
     addr = {ip, hb.port}
     existing = Store.lookup(conf.store, addr, now)
 
-    case latest(existing, Store.lookup_replica(conf.store, addr, now)) do
-      nil ->
+    case Enum.reject([existing | Store.lookup_replicas(conf.store, addr, now)], &is_nil/1) do
+      [] ->
         VS.reply("invalid", nil)
 
-      listed ->
+      copies ->
+        listed = Enum.max_by(copies, & &1.verified)
+
         case put(addr, listed.server, hb.players, listed.verified, existing, conf, now) do
           :ok -> VS.reply("ok", nil)
           {:error, :changed} when tries > 1 -> heartbeat(hb, ip, conf, now, tries - 1)
@@ -430,10 +434,6 @@ defmodule Exmaster.VS.Master do
         end
     end
   end
-
-  defp latest(nil, b), do: b
-  defp latest(a, nil), do: a
-  defp latest(a, b), do: if(b.verified > a.verified, do: b, else: a)
 
   # Writes the entry if the server's current one is still what it was read
   # as: another request may have written it in between. verified is when

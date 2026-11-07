@@ -66,18 +66,12 @@ defmodule Exmaster.Store do
     end
   end
 
-  @doc """
-  The entry for addr that a node this one is connected to lists, the one
-  that expires last, or nil.
-  """
-  def lookup_replica(store, addr, now) do
+  @doc "The entries for addr that the nodes this one is connected to list."
+  def lookup_replicas(store, addr, now) do
     for n <- Node.list(),
         [{_, expires, _, entry}] <- [:ets.lookup(replicas(store), {addr, n})],
         expires > now,
-        reduce: nil do
-      acc when acc != nil and acc.expires >= entry.expires -> acc
-      _ -> entry
-    end
+        do: entry
   end
 
   @doc "`{addr, entry}` for every server at ip this node lists itself."

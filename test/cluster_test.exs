@@ -87,9 +87,9 @@ defmodule Exmaster.ClusterTest do
     # take it over.
     assert :erpc.call(@peer, Store, :lookup, [@store, a, peer_now()]) == nil
     assert :erpc.call(@peer, Store, :local_count, [@store, peer_now()]) == 0
-    assert %{clients: 1} = :erpc.call(@peer, Store, :lookup_replica, [@store, a, peer_now()])
-    assert :erpc.call(@peer, Store, :lookup_replica, [@store, a, peer_now() + 61_000]) == nil
-    assert Store.lookup_replica(@store, a, Exmaster.now()) == nil
+    assert [%{clients: 1}] = :erpc.call(@peer, Store, :lookup_replicas, [@store, a, peer_now()])
+    assert :erpc.call(@peer, Store, :lookup_replicas, [@store, a, peer_now() + 61_000]) == []
+    assert Store.lookup_replicas(@store, a, Exmaster.now()) == []
   end
 
   test "both ways, and drops" do
@@ -200,7 +200,7 @@ defmodule Exmaster.ClusterTest do
     }
 
     :ok = :erpc.call(@peer, Store, :put, [:exmaster_vs, a, entry, pnow, nil])
-    wait_until(fn -> Store.lookup_replica(:exmaster_vs, a, Exmaster.now()) != nil end)
+    wait_until(fn -> Store.lookup_replicas(:exmaster_vs, a, Exmaster.now()) != [] end)
 
     # A heartbeat here keeps the new name, though this node lists the old.
     assert %{"status" => "ok"} =
