@@ -4,18 +4,18 @@ defmodule Exmaster.Config do
   `protocol:[host:]port[=label]`, where protocol is `q3`, `q2`, `qw`, `gs`
   (GameSpy heartbeats, UDP), `gsl` (GameSpy lists, TCP), `qr2` (GameSpy
   QR2 heartbeats, UDP), `sb` (GameSpy QR2 lists, TCP), `gp` (GameSpy's
-  login, TCP, for Unreal Tournament 3) or `ue2` (Unreal Tournament 2004,
-  TCP).
+  login, TCP, for Unreal Tournament 3), `ue2` (Unreal Tournament 2004,
+  TCP) or `vs` (Vintage Story, HTTP).
 
       q3:27950,q2:27900,qw:27000,q3:27960=UrbanTerror,q3:27961=SmokinGuns
       q3:[::1]:27950,q2:127.0.0.1:27900,gs:127.0.0.2:27900,gsl:127.0.0.2:28900
-      qr2:27900,sb:28910,gp:29900,ue2:28902
+      qr2:27900,sb:28910,gp:29900,ue2:28902,vs:8080
 
   A label is for Quake 3 listeners only. A labelled listener is a master of
   its own, for one game: it lists its servers in a store of its own,
   shared with the listeners that have the same label. See "Listeners" in
-  `docs/quake3.md`. Quake 2, QuakeWorld, GameSpy and UT2004 lists only
-  hold IPv4, so their host can't be IPv6.
+  `docs/quake3.md`. Quake 2, QuakeWorld, GameSpy, UT2004 and Vintage
+  Story lists only hold IPv4, so their host can't be IPv6.
 
   Two or three `q2`, `gs` and `qr2` listeners on the same address and
   port share one socket, `Exmaster.Shared`: their games all heartbeat UDP
@@ -31,7 +31,8 @@ defmodule Exmaster.Config do
     "qr2" => Exmaster.QR2.Master,
     "sb" => Exmaster.SB.ListServer,
     "gp" => Exmaster.GP.Server,
-    "ue2" => Exmaster.UE2.Master
+    "ue2" => Exmaster.UE2.Master,
+    "vs" => Exmaster.VS.Master
   }
 
   def listeners!(spec) do
@@ -98,7 +99,7 @@ defmodule Exmaster.Config do
 
   @doc """
   The stores the listeners list into, as `{name, store}`: `:q3`, `:q2`,
-  `:qw`, `:gs`, `:qr2` and `:ue2` always, and a label for each labelled
+  `:qw`, `:gs`, `:qr2`, `:ue2` and `:vs` always, and a label for each labelled
   listener's.
   """
   def stores(listeners) do
@@ -108,7 +109,8 @@ defmodule Exmaster.Config do
       qw: Exmaster.QW.Master.store(),
       gs: Exmaster.GS.Master.store(),
       qr2: Exmaster.QR2.Master.store(),
-      ue2: Exmaster.UE2.Master.store()
+      ue2: Exmaster.UE2.Master.store(),
+      vs: Exmaster.VS.Master.store()
     ]
 
     labelled =
@@ -145,7 +147,7 @@ defmodule Exmaster.Config do
 
     cond do
       not q3 and ip != nil and tuple_size(ip) == 8 ->
-        {:error, "Quake 2, QuakeWorld, GameSpy and UT2004 lists are IPv4 only"}
+        {:error, "Quake 2, QuakeWorld, GameSpy, UT2004 and Vintage Story lists are IPv4 only"}
 
       label == nil ->
         :ok

@@ -6,13 +6,16 @@ Queries go 3.5 seconds apart, under exmaster's per-IP limit of 5 at once
 then one every 3 seconds. The GameSpy list is asked for without
 encryption (enctype 0); Battlefield 1942 asks for enctype 2, which the
 tests cover. The QR2 list (server browsing) is always encrypted; the
-client here decrypts OpenSpy's lists too.
+client here decrypts OpenSpy's lists too. Vintage Story's list is JSON
+over HTTP.
 """
+import json
 import os
 import socket
 import struct
 import sys
 import time
+import urllib.request
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 OOB = b"\xff\xff\xff\xff"
@@ -308,3 +311,15 @@ for game, from_game, key in [(b"bfvietnam", b"bfvietnam", b"h2P9dJ"),
                               from_game, key)
     print("sb %-36s %s" % ("%s, asked as %s" % (game.decode(), from_game.decode()), servers))
     time.sleep(3.5)
+
+
+def vintagestory():
+    """Vintage Story's list, as its client gets it: GET <url>list, JSON."""
+    with urllib.request.urlopen("http://%s:42410/list" % HOST, timeout=5) as r:
+        reply = json.load(r)
+    time.sleep(3.5)
+    return reply["status"], [(e["serverIP"], e["serverName"], "%d/%d" % (e["players"], e["maxPlayers"]),
+                              e["gameVersion"], len(e["mods"])) for e in reply["data"]]
+
+
+print("vs %-36s %s" % ("list", vintagestory()))

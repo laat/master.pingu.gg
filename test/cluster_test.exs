@@ -83,9 +83,13 @@ defmodule Exmaster.ClusterTest do
     [{^a, e}] = :erpc.call(@peer, Store, :all, [@store, peer_now()])
     assert_in_delta e.protocols[68], peer_now(), 1_000
 
-    # Only the node that listed it asks and checks it.
+    # Only the node that listed it asks and checks it, but the other can
+    # take it over.
     assert :erpc.call(@peer, Store, :lookup, [@store, a, peer_now()]) == nil
     assert :erpc.call(@peer, Store, :local_count, [@store, peer_now()]) == 0
+    assert %{clients: 1} = :erpc.call(@peer, Store, :lookup_replica, [@store, a, peer_now()])
+    assert :erpc.call(@peer, Store, :lookup_replica, [@store, a, peer_now() + 61_000]) == nil
+    assert Store.lookup_replica(@store, a, Exmaster.now()) == nil
   end
 
   test "both ways, and drops" do

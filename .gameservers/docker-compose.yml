@@ -218,3 +218,15 @@ services:
     volumes:
       - ./data/ut3:/data
       - ./config/ut3server.cfg:/data/config-lgsm/ut3server/ut3server.cfg:ro
+  vints:
+    <<: *server
+    image: ghcr.io/gameservermanagers/gameserver:vints
+    container_name: exmaster-vints
+    # Its master is a setting, which its instance config points at
+    # exmaster on 127.0.0.1:42410; the official master, its default, to
+    # 127.0.0.3, where nothing listens, should the setting not take.
+    extra_hosts:
+      - masterserver.vintagestory.at:127.0.0.3
+    volumes:
+      - ./data/vints:/data
+      - ./config/vintsserver.cfg:/data/config-lgsm/vintsserver/vintsserver.cfg:ro

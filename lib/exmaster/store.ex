@@ -67,6 +67,29 @@ defmodule Exmaster.Store do
   end
 
   @doc """
+  The entry for addr that a node this one is connected to lists, the one
+  that expires last, or nil.
+  """
+  def lookup_replica(store, addr, now) do
+    for n <- Node.list(),
+        [{_, expires, _, entry}] <- [:ets.lookup(replicas(store), {addr, n})],
+        expires > now,
+        reduce: nil do
+      acc when acc != nil and acc.expires >= entry.expires -> acc
+      _ -> entry
+    end
+  end
+
+  @doc "`{addr, entry}` for every server at ip this node lists itself."
+  def on_ip(store, ip, now) do
+    for {port, entry} <-
+          :ets.select(store, [
+            {{{ip, :"$1"}, :"$2", :_, :"$4"}, [{:>, :"$2", now}], [{{:"$1", :"$4"}}]}
+          ]),
+        do: {{ip, port}, entry}
+  end
+
+  @doc """
   `{addr, entry}` for every server that hasn't expired, of game if given,
   listed by this node or another. A server two nodes list is there
   once, as the copy that expires last has it: the one from the node that

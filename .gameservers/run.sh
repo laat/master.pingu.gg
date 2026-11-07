@@ -6,7 +6,7 @@
 #   run.sh [service...]     all of them by default
 set -eu
 cd "$(dirname "$0")"
-services=${*:-q3 q2 qw bf1942 bfv mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4 ut3}
+services=${*:-q3 q2 qw bf1942 bfv mohaa rtcw wet etl xnt wf cod coduo cod2 cod4 sof2 ut99 ut2k4 ut3 vints}
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 
 # The image installs a game only into an empty serverfiles. q3, q2 and qw
@@ -83,9 +83,10 @@ done
 # heartbeat at once; this makes it immediate for all of them. BF1942
 # heartbeats as it starts too, and has no command for it, nor has BF
 # Vietnam, nor UT3, which heartbeats once it has logged in. Neither has
-# UT2004, whose first heartbeat comes a minute after it starts.
+# UT2004, whose first heartbeat comes a minute after it starts, nor
+# Vintage Story, which registers once its world is running.
 for g in $services; do
-	case $g in bf1942 | bfv | ut2k4 | ut3) continue ;; esac
+	case $g in bf1942 | bfv | ut2k4 | ut3 | vints) continue ;; esac
 	docker exec -u linuxgsm "exmaster-$g" sh -c "cd /app && ./${g}server send heartbeat" >/dev/null || true
 done
 sleep 3

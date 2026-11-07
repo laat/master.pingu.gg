@@ -3,7 +3,7 @@
 Master servers in Elixir/OTP for Quake 3 based games, Quake 2,
 QuakeWorld, Battlefield 1942, Medal of Honor: Allied Assault and Unreal
 Tournament (GameSpy), Battlefield Vietnam and Unreal Tournament 3 (GameSpy
-QR2), and Unreal Tournament 2004. Game servers heartbeat it and clients ask it for server
+QR2), Unreal Tournament 2004 and Vintage Story. Game servers heartbeat it and clients ask it for server
 lists. It keeps the lists in memory (ETS) and nothing else: no
 database, no server browser, no upstream masters.
 [.gameservers/](.gameservers/README.md), apart from the project, runs
@@ -11,8 +11,9 @@ real game servers against it in Docker.
 
 The protocols are described in [docs/quake3.md](docs/quake3.md),
 [docs/quake2.md](docs/quake2.md), [docs/quakeworld.md](docs/quakeworld.md),
-[docs/gamespy.md](docs/gamespy.md), [docs/qr2.md](docs/qr2.md) and
-[docs/ut2004.md](docs/ut2004.md).
+[docs/gamespy.md](docs/gamespy.md), [docs/qr2.md](docs/qr2.md),
+[docs/ut2004.md](docs/ut2004.md) and
+[docs/vintagestory.md](docs/vintagestory.md).
 
 ## Running
 
@@ -34,7 +35,7 @@ OS and architecture it runs on.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb`, `gp` and `ue2` |
+| `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb`, `gp`, `ue2` and `vs` |
 | `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
 | `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
 | `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
@@ -78,6 +79,14 @@ UT2004's master, `ue2`, is one TCP listener, port 28902 in the game's
 ini, for its servers and its clients both (`ue2:28902`). It isn't in the
 default either, and its lists hold only IPv4.
 
+Vintage Story's master, `vs`, is one TCP listener too, serving HTTP
+(`vs:8080`). Servers and clients take a URL for it, with any path:
+`MasterserverUrl` in the server's `serverconfig.json` and
+`masterserverUrl` in the client's `clientsettings.json`, set to
+`http://host:8080/`. Registrations have to reach it directly, not
+through a proxy, since it lists a server at the connection's IP. It
+isn't in the default, and its lists hold only IPv4.
+
 ### Several nodes
 
 exmaster can run on several hosts behind one DNS name with an A record
@@ -117,8 +126,8 @@ Exmaster.Supervisor
 ├── Exmaster.RateLimit        token buckets in a public ETS table
 ├── Exmaster.PG               the pg scope the stores share their lists in
 ├── Exmaster.Store            one per master: :exmaster_q3, :exmaster_q2, :exmaster_qw,
-│                             :exmaster_gs, :exmaster_qr2, :exmaster_ue2, and
-│                             :exmaster_q3_<label> per label
+│                             :exmaster_gs, :exmaster_qr2, :exmaster_ue2,
+│                             :exmaster_vs, and :exmaster_q3_<label> per label
 ├── Exmaster.Cluster          connects to EXMASTER_PEERS, if set
 └── Exmaster.Listeners
     ├── Exmaster.Listener     one per UDP socket, running Q3.Master, Q2.Master,
@@ -128,7 +137,8 @@ Exmaster.Supervisor
     ├── Exmaster.GS.ListServer  one per TCP socket, with a task per connection
     ├── Exmaster.SB.ListServer  one per TCP socket, with a task per connection
     ├── Exmaster.GP.Server    one per TCP socket, with a task per connection
-    └── Exmaster.UE2.Master   one per TCP socket, with a task per connection
+    ├── Exmaster.UE2.Master   one per TCP socket, with a task per connection
+    └── Exmaster.VS.Master    one per TCP socket, with a task per connection
 ```
 
 - Each socket has a listener process that takes packets one at a time,
@@ -159,7 +169,7 @@ Exmaster.Supervisor
   a minute, so a packet like that can't restart a listener in a loop.
 - Each protocol has its own module for the wire format (`Exmaster.Q3`,
   `Exmaster.Q2`, `Exmaster.QW`, `Exmaster.GS`, `Exmaster.QR2`,
-  `Exmaster.SB`, `Exmaster.GP`, `Exmaster.UE2`) and one for the master
+  `Exmaster.SB`, `Exmaster.GP`, `Exmaster.UE2`, `Exmaster.VS`) and one for the master
   (`*.Master`, `*.ListServer`, `*.Server`).
   The protocols share no code but GameSpy's challenge response and
   `\key\value` parsing (`Exmaster.GS.validate/2`, `parse/1`), which QR2
@@ -248,6 +258,21 @@ the empty message of the day, and are disconnected. The master takes
 4,096 servers' connections and, apart, 256 in their handshake or with a
 client; an IP can have as many as it may list servers and 8 more. See
 [docs/ut2004.md](docs/ut2004.md).
+
+### Vintage Story
+
+A Vintage Story server posts JSON over HTTP: it registers, heartbeats
+every 2 minutes with the token it got, and unregisters as it shuts
+down. It is listed at the connection's IP and the port it registers,
+once that port has taken a TCP connection from the master, and for 5
+minutes after each heartbeat. The token is the port. A heartbeat for a
+server that isn't listed, after exmaster restarts say, gets `invalid`,
+and the game registers again. The game unregisters without its token,
+so 10 seconds later exmaster connects to each server it lists at that
+IP and drops those that don't take it and haven't heartbeat since.
+Clients get the list as JSON, with the keys the official master's has.
+A connection is one request. See
+[docs/vintagestory.md](docs/vintagestory.md).
 
 ### Limits, for all of them
 

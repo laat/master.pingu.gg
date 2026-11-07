@@ -63,6 +63,16 @@ defmodule Exmaster.ConfigTest do
                store: :exmaster_ue2
              ]
            ]
+
+    assert Config.listeners!("vs:127.0.0.1:8080") == [
+             [
+               protocol: Exmaster.VS.Master,
+               ip: {127, 0, 0, 1},
+               port: 8080,
+               label: nil,
+               store: :exmaster_vs
+             ]
+           ]
   end
 
   test "a q2 and a gs listener on one address and port share a socket" do
@@ -134,6 +144,7 @@ defmodule Exmaster.ConfigTest do
              {:gs, :exmaster_gs},
              {:qr2, :exmaster_qr2},
              {:ue2, :exmaster_ue2},
+             {:vs, :exmaster_vs},
              {"UrbanTerror", :exmaster_q3_UrbanTerror}
            ]
   end
@@ -144,6 +155,7 @@ defmodule Exmaster.ConfigTest do
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("ue2:[::]:28902") end
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("qr2:[::]:27900") end
     assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("sb:[::]:28910") end
+    assert_raise ArgumentError, ~r/IPv4 only/, fn -> Config.listeners!("vs:[::]:8080") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("ue2:28902=x") end
     assert_raise ArgumentError, ~r/labels are for q3/, fn -> Config.listeners!("q2:27900=Q2") end
 
