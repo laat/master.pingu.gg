@@ -140,6 +140,20 @@ defmodule Exmaster.Q2Test do
     assert Store.lookup(:exmaster_q2, @server, 140_000) == nil
   end
 
+  test "a reply that isn't a status doesn't use up the server's", %{ctx: ctx, state: state} do
+    state = register(ctx, state, @server, @info)
+
+    # A forged shutdown, then a forged reply that isn't a status, before the
+    # server's own.
+    {[{@status, @server}], state} =
+      Master.handle_packet(oob("shutdown"), @server, ctx, 60_000, state)
+
+    {[], state} = Master.handle_packet(oob("print\nnot a status\n"), @server, ctx, 60_050, state)
+    {[], state} = Master.handle_packet(print(@info), @server, ctx, 60_100, state)
+    {[], _} = Master.tick(ctx, 70_000, state)
+    assert Store.lookup(:exmaster_q2, @server, 70_000)
+  end
+
   test "a server that restarts during a check is asked again when the check drops it", %{
     ctx: ctx,
     state: state

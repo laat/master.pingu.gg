@@ -43,7 +43,7 @@ in `mode`.
 
 **No challenge**, as in Quake 2: a heartbeat from an address that isn't
 listed gets `status`, a reply is only taken from an address asked in the
-last 10 seconds, once, a listed server is asked again on its heartbeat at
+last 10 seconds, once, by a reply that is a status, a listed server is asked again on its heartbeat at
 most once a minute, and a `C` has it asked and dropped if it doesn't
 reply within 10 seconds. See [quake2.md](quake2.md#no-challenge).
 

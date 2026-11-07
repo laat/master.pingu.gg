@@ -40,7 +40,9 @@ that a server is at the address it came from. exmaster:
 - answers a heartbeat from an address that isn't listed with `status`,
   and notes that it asked;
 - takes a `print` only from an address it asked in the last 10 seconds,
-  once, and lists the server for 15 minutes after each one;
+  once, and lists the server for 15 minutes after each one; a `print`
+  that isn't a status doesn't count, so a forged one can't use up a real
+  server's answer to a shutdown check;
 - doesn't use the status a heartbeat carries, since heartbeats can be
   forged with a listed server's address;
 - asks a listed server again on its heartbeat, at most once a minute;
@@ -51,7 +53,11 @@ That keeps out servers that can't be reached, and makes a forged
 registration take a forged heartbeat and a forged reply. It is no proof
 that a server is at its address, as a Quake 3 challenge is: a blind
 spoofer can make up the reply. `EXMASTER_MAX_PER_IP` keeps what one can
-list under someone else's IP to 32 ports.
+list under someone else's IP to 32 ports, but spread over many IPs a
+spoofer can fill the list to `EXMASTER_MAX_SERVERS`, and can change what a
+listed server says until its next reply. Leave `q2` out of
+`EXMASTER_LISTEN` on a network that doesn't drop packets with forged
+source addresses.
 
 Whom the master asked is kept in a fixed table of 65,536 slots, keyed by
 a salted hash of the address. Forged heartbeats from many addresses take
