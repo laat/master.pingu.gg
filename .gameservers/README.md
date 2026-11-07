@@ -1,6 +1,6 @@
 # Real game servers against exmaster
 
-`docker-compose.yml` runs nineteen game servers from LinuxGSM's images
+`docker-compose.yml` runs twenty game servers from LinuxGSM's images
 ([docker-gameserver](https://github.com/GameServerManagers/docker-gameserver)),
 which install the original server binaries and game data:
 
@@ -25,6 +25,7 @@ which install the original server binaries and game data:
 | `ut99` | OldUnreal's ucc-bin 469f | 7777, queries 7778 | 127.0.0.1:27900, lists TCP 28900 |
 | `ut2k4` | Epic's ucc-bin 3369 | 7757, queries 7758 | TCP 127.0.0.1:28902 |
 | `ut3` | Epic's ut3-bin, patch 5 | 7787, queries 6500 | 127.0.0.1:27900 (QR2), login TCP 29900, lists TCP 28910 |
+| `vints` | Vintage Story's VintagestoryServer 1.22.7 | TCP and UDP 42420 | HTTP 127.0.0.1:42410 |
 
 They use host networking and heartbeat exmaster on loopback only. The
 GameSpy and QR2 masters share 127.0.0.1:27900 with Quake 2's, on one
@@ -36,7 +37,7 @@ port.
 EXMASTER_LISTEN=q3:127.0.0.1:27950,q2:127.0.0.1:27900,qw:127.0.0.1:27000,gs:127.0.0.1:27900,gsl:127.0.0.1:28900,\
 qr2:127.0.0.1:27900,sb:127.0.0.1:28910,gp:127.0.0.1:29900,\
 q3:127.0.0.1:20510=CoD,q3:127.0.0.1:20610=CoDUO,q3:127.0.0.1:20710=CoD2,q3:127.0.0.1:20810=CoD4,q3:127.0.0.1:20110=SoF2,\
-ue2:127.0.0.1:28902 \
+ue2:127.0.0.1:28902,vs:127.0.0.1:42410 \
   elixir --sname exmaster -S mix run --no-halt
 
 .gameservers/run.sh                 # start the servers, show the lists
@@ -52,6 +53,7 @@ quakestat -gs2 127.0.0.1:23100      # Battlefield Vietnam itself; query.py asks 
 quakestat -ut3s 127.0.0.1:6500      # and UT3
 gslist -n bfvietnam -x 127.0.0.1:28910 -Y bfvietnam h2P9dJ -t -1 -X '\hostname\numplayers'  # gslist asks QR2 lists as the game
 gslist -n ut3pc -x 127.0.0.1:28910 -Y ut3pc nT2Mtz -t -1 -X '\hostname\numplayers'
+curl -s http://127.0.0.1:42410/list    # Vintage Story's list, JSON
 quakestat -ut2004m,cdkey=AAAAA-BBBBB-CCCCC-DDDDD 127.0.0.1:28902    # any key: nothing checks it
 elixir --sname probe -e 'IO.inspect(:rpc.call(:"exmaster@#{elem(:inet.gethostname(), 1)}", Exmaster, :stats, []))'
 
@@ -62,7 +64,8 @@ Server files are kept in `data/` (ignored by git): about 1.3 GB for the
 Quake servers, 170 MB for Battlefield 1942, 250 MB for Battlefield
 Vietnam, 3 GB for MOH:AA, 3.6 GB for
 RTCW, ET, ET: Legacy, Xonotic and Warfork together, 420 MB for Unreal
-Tournament, 5.7 GB for UT2004 and 7.3 GB for UT3. The image installs a game only into an
+Tournament, 5.7 GB for UT2004, 7.3 GB for UT3 and 350 MB for Vintage
+Story. The image installs a game only into an
 empty `serverfiles`. q3, q2 and qw mount a config there, and Battlefield
 1942, Battlefield Vietnam, Unreal Tournament and UT2004 read theirs from
 there, so `run.sh` installs those seven first, with only `/data` mounted,
@@ -172,13 +175,24 @@ own from `config/` instead:
   in LinuxGSM's ini (333networks, errorist and OpenSpy) and GameSpy's at
   127.0.0.3 all the same. `-multihome=127.0.0.1` binds its sockets to
   loopback; it runs on 7757, since UT99 has 7777.
+- Vintage Story's master is `MasterserverUrl` in its
+  `serverconfig.json`, which is in `serverfiles` and which the server
+  writes as it first starts. Its instance config's start line has
+  `--withconfig`, which merges settings into it on every start: the
+  master, exmaster on `http://127.0.0.1:42410/`; `AdvertiseServer`, off
+  by default since 1.20; and `Ip`, which binds its game port, TCP and
+  UDP, to 127.0.0.1. `extra_hosts` points the official master at
+  127.0.0.3 all the same. The image installs it, since only its
+  instance config is mounted. It registers once, as its world starts,
+  and not again if the master isn't up then, so exmaster has to be
+  running before it starts. LinuxGSM's monitor checks its TCP port.
 
 q3ded, quake2 and the others above are bound to loopback, so they can't
 send anywhere else. A capture of game-port UDP off loopback while the
 servers start is empty:
 
 ```
-sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758 or port 15567 or port 23100 or port 7787 or port 6500) and not host 127.0.0.1 and not host ::1'
+sudo tcpdump -i any -n 'udp and (port 27960 or port 27910 or port 27500 or port 27961 or port 27962 or port 27963 or port 26000 or port 44400 or port 28960 or port 28961 or port 28962 or port 28964 or port 20100 or port 7757 or port 7758 or port 15567 or port 23100 or port 7787 or port 6500 or port 42420) and not host 127.0.0.1 and not host ::1'
 ```
 
 LinuxGSM's monitor can't query Quake 2 3.20, MVDSV, Battlefield 1942,
@@ -373,3 +387,28 @@ The five, with q3, q2, qw and bf1942, from an empty `data/`:
   listed until it expires.
 - No traffic left loopback from its ports. LinuxGSM's monitor only checks
   its process (LinuxGSM's own setting).
+
+## What it showed for Vintage Story (2026-11-07)
+
+- From an empty `data/`, the image installed 1.22.7. With
+  `--withconfig` the server wrote the master, `AdvertiseServer` and `Ip`
+  into its `serverconfig.json`, and bound TCP and UDP 42420 on
+  127.0.0.1.
+- Once its world was running it posted `register`, with
+  `"serverUrl":null,"gameDescription":null,"vhIdentifier":null` and its
+  three built-in mods; exmaster connected to 42420, listed it, and
+  answered its port as the token. The server heartbeat with it at once,
+  `{"token":"42420","players":0}`, then every 2 minutes, each pushing its
+  expiry back to 5 minutes.
+- `curl` and `query.py` got the list. Its entries have the keys and
+  types of the official master's, but `maxPlayers`, which that one sends
+  as a string and the client reads as an integer.
+- After exmaster restarted, the server's next heartbeat got `invalid`;
+  it registered again at once and was listed.
+- Stopped, it posted `unregister` with `{"token":null}`; exmaster
+  connected to 42420 10 seconds later, was refused, and dropped it.
+- Started while exmaster was down, it logged "Failed request to master
+  server url" and didn't try again, until it was restarted.
+- No traffic left loopback from its game port. On the container's first
+  start a second instance from LinuxGSM's monitor race crashed with
+  "Address already in use"; the first ran on.

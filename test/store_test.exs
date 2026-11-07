@@ -27,6 +27,18 @@ defmodule Exmaster.StoreTest do
     assert :ets.info(s, :size) == 0
   end
 
+  test "on_ip", %{store: s} do
+    assert Store.put(s, {{1, 1, 1, 1}, 1}, entry(0), 0, nil) == :ok
+    assert Store.put(s, {{1, 1, 1, 1}, 2}, entry(0, expires: 500), 0, nil) == :ok
+    assert Store.put(s, {{1, 1, 1, 2}, 1}, entry(0), 0, nil) == :ok
+
+    assert [{{{1, 1, 1, 1}, 1}, _}, {{{1, 1, 1, 1}, 2}, _}] =
+             Enum.sort(Store.on_ip(s, {1, 1, 1, 1}, 0))
+
+    assert [{{{1, 1, 1, 1}, 1}, %{game: "Quake3Arena"}}] = Store.on_ip(s, {1, 1, 1, 1}, 500)
+    assert Store.on_ip(s, {1, 1, 1, 3}, 0) == []
+  end
+
   test "limits", %{store: s} do
     assert Store.put(s, {{1, 1, 1, 1}, 1}, entry(0), 0, nil) == :ok
     assert Store.put(s, {{1, 1, 1, 1}, 2}, entry(0), 0, nil) == :ok

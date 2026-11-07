@@ -83,9 +83,13 @@ defmodule Exmaster.ClusterTest do
     [{^a, e}] = :erpc.call(@peer, Store, :all, [@store, peer_now()])
     assert_in_delta e.protocols[68], peer_now(), 1_000
 
-    # Only the node that listed it asks and checks it.
+    # Only the node that listed it asks and checks it, but the other can
+    # take it over.
     assert :erpc.call(@peer, Store, :lookup, [@store, a, peer_now()]) == nil
     assert :erpc.call(@peer, Store, :local_count, [@store, peer_now()]) == 0
+    assert [%{clients: 1}] = :erpc.call(@peer, Store, :lookup_replicas, [@store, a, peer_now()])
+    assert :erpc.call(@peer, Store, :lookup_replicas, [@store, a, peer_now() + 61_000]) == []
+    assert Store.lookup_replicas(@store, a, Exmaster.now()) == []
   end
 
   test "both ways, and drops" do
@@ -167,5 +171,58 @@ defmodule Exmaster.ClusterTest do
     pnow = peer_now()
     :ok = :erpc.call(@peer, Store, :put, [@store, a, entry(pnow), pnow, nil])
     wait_until(fn -> addresses(node()) == ["198.51.100.1:27960"] end)
+  end
+
+  test "a Vintage Story heartbeat takes the latest registration's settings, from either node" do
+    Store.clear(:exmaster_vs)
+    :erpc.call(@peer, Store, :clear, [:exmaster_vs])
+    {:ok, l} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false])
+    {:ok, game} = :inet.port(l)
+    a = {{127, 0, 0, 1}, game}
+    pid = start_supervised!({Exmaster.VS.Master, ip: {127, 0, 0, 1}, port: 0})
+    port = Exmaster.VS.Master.port(pid)
+    assert %{"status" => "ok"} = vs_post(port, "register", %{"port" => game, "name" => "old"})
+
+    # The server registers again on the peer, with a new name.
+    {:ok, server} =
+      :erpc.call(@peer, Exmaster.VS, :parse_register, [~s({"port":#{game},"name":"new"})])
+
+    pnow = peer_now()
+
+    entry = %{
+      game: "vintagestory",
+      clients: 0,
+      server: server,
+      json: :erpc.call(@peer, Exmaster.VS, :encode_entry, [a, server, 0]),
+      verified: pnow,
+      seen: pnow,
+      expires: pnow + 300_000
+    }
+
+    :ok = :erpc.call(@peer, Store, :put, [:exmaster_vs, a, entry, pnow, nil])
+    wait_until(fn -> Store.lookup_replicas(:exmaster_vs, a, Exmaster.now()) != [] end)
+
+    # A heartbeat here keeps the new name, though this node lists the old.
+    assert %{"status" => "ok"} =
+             vs_post(port, "heartbeat", %{"token" => "#{game}", "players" => 2})
+
+    assert %{server: %{name: "new"}, clients: 2} = Store.lookup(:exmaster_vs, a, Exmaster.now())
+    :gen_tcp.close(l)
+  end
+
+  defp vs_post(port, endpoint, json) do
+    {:ok, s} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+    body = JSON.encode!(json)
+
+    :ok =
+      :gen_tcp.send(
+        s,
+        "POST /#{endpoint} HTTP/1.1\r\nContent-Length: #{byte_size(body)}\r\n\r\n#{body}"
+      )
+
+    {:ok, reply} = :gen_tcp.recv(s, 0, 5_000)
+    :gen_tcp.close(s)
+    [_, body] = String.split(reply, "\r\n\r\n", parts: 2)
+    JSON.decode!(body)
   end
 end
