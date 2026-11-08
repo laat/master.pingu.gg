@@ -101,8 +101,9 @@ QuakeWorld masters pull the lists of the masters in the file, every 5
 minutes, and ask each server on them as if it had heartbeat: a `getinfo`
 with a challenge, or `status`. A server is listed once it answers, as one
 that heartbeats is, and stays listed while the upstream lists it and it
-answers. A server that heartbeats exmaster and is on a list is asked at
-most once a minute all the same.
+answers. A listed server is asked at most once a minute all the same; one
+on a list inside its minute is left to the next round rather than asked
+at the minute's end, so a list's servers don't come due together.
 
 ```
 # master          host[:port]                    query

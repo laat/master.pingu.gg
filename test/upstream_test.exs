@@ -218,19 +218,26 @@ defmodule Exmaster.UpstreamTest do
       assert {[], _} = Master.tick(ctx, 10_001, state)
     end
 
-    test "a listed server on a list is asked again at most once a minute" do
+    test "a listed server on a list is asked again after its minute, and skipped inside it" do
       ctx = ctx(:exmaster_q3)
       {state, u} = pulled("getservers 68", ctx)
       state = list_from(state, @master, [server(1)], ctx, 0)
       {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, _}], state} = Master.tick(ctx, 0, state)
       {[], state} = answer(ctx, state, server(1), c, @info, 0)
 
-      # The next round, inside the minute: asked when it is over.
-      {[], state} = Master.pull([{@master, u}], ctx, 10_000, state)
-      {[_query], state} = Master.tick(ctx, 10_000, state)
-      state = list_from(state, @master, [server(1)], ctx, 10_000)
+      round = fn state, now ->
+        {[], state} = Master.pull([{@master, u}], ctx, now, state)
+        {[_query], state} = Master.tick(ctx, now, state)
+        list_from(state, @master, [server(1)], ctx, now)
+      end
+
+      # Inside the minute: skipped, not put off to its end.
+      state = round.(state, 10_000)
       assert {[], state} = Master.tick(ctx, 10_000, state)
-      assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, _}], _} = Master.tick(ctx, 60_000, state)
+      assert {[], state} = Master.tick(ctx, 60_000, state)
+
+      state = round.(state, 70_000)
+      assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, _}], _} = Master.tick(ctx, 70_000, state)
     end
   end
 
@@ -253,6 +260,37 @@ defmodule Exmaster.UpstreamTest do
       status = "\xFF\xFF\xFF\xFFprint\n\\maxclients\\8\\hostname\\q2\n0 0 \"p\"\n"
       {[], _} = Master.handle_packet(status, server(1), ctx, 0, state)
       assert %{game: "Quake2", clients: 1} = Store.lookup(:exmaster_q2, server(1), 0)
+    end
+
+    test "Quake 2: listed servers on a list inside their minute don't come due together" do
+      alias Exmaster.Q2.Master
+      ctx = ctx(:exmaster_q2)
+      servers = for n <- 1..200, do: {{203, 0, div(n, 256) + 1, rem(n, 256)}, 27910}
+      status = "\xFF\xFF\xFF\xFFprint\n\\maxclients\\8\\hostname\\q2\n"
+
+      # Listed by their heartbeats at 0.
+      state =
+        Enum.reduce(servers, Master.init(0), fn addr, state ->
+          {_, state} = Master.handle_packet("\xFF\xFF\xFF\xFFheartbeat\n", addr, ctx, 0, state)
+          {[], state} = Master.handle_packet(status, addr, ctx, 0, state)
+          state
+        end)
+
+      assert length(Store.all(:exmaster_q2, 0)) == 200
+      {:ok, u} = Master.upstream([])
+      {[], state} = Master.pull([{@master, u}], ctx, 1_000, state)
+      {[_query], state} = Master.tick(ctx, 1_000, state)
+      {[], state} = Master.handle_packet(hd(Q2.encode_list(servers)), @master, ctx, 1_000, state)
+
+      sends =
+        Enum.reduce(1_000..61_000//1_000, {[], state}, fn now, {sends, state} ->
+          {more, state} = Master.tick(ctx, now, state)
+          assert length(more) <= 50
+          {sends ++ more, state}
+        end)
+        |> elem(0)
+
+      assert sends == []
     end
 
     test "QuakeWorld: servers on a list get status, and are listed by their reply" do

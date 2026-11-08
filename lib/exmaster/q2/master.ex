@@ -111,7 +111,7 @@ defmodule Exmaster.Q2.Master do
 
     {sends, state} =
       Enum.flat_map_reduce(probes, %{state | upstream: upstream}, fn {addr, _}, state ->
-        heartbeat(addr, ctx, now, state)
+        listed(addr, ctx, now, state)
       end)
 
     {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
@@ -256,6 +256,30 @@ defmodule Exmaster.Q2.Master do
         :ok -> {:now, sent(state, addr, now, :check)}
         {:error, wait} -> {:later, defer(state, addr, now + wait, :check)}
       end
+    end
+  end
+
+  # A server on an upstream master's list: asked as for a heartbeat, but a
+  # listed one inside its minute is skipped, not put off: a list's servers
+  # are asked 50 a tick, and put off they would come due together. The
+  # next round asks it again.
+  defp listed(addr, ctx, now, state) do
+    case Store.lookup(ctx.store, addr, now) do
+      nil ->
+        heartbeat(addr, ctx, now, state)
+
+      %{via: via} when via == ctx.id ->
+        case RateLimit.take({:q2, :poll, addr}, @gap, 1, now) do
+          :ok ->
+            state = sent(state, addr, now, :poll)
+            {[status(addr, now, state)], state}
+
+          {:error, _} ->
+            {[], state}
+        end
+
+      _ ->
+        {[], state}
     end
   end
 

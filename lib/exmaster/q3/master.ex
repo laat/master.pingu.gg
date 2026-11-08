@@ -130,7 +130,7 @@ defmodule Exmaster.Q3.Master do
 
     {sends, state} =
       Enum.flat_map_reduce(probes, state, fn {addr, u}, state ->
-        announce(addr, u.class, ctx, now, state)
+        announce(addr, u.class, ctx, now, state, :list)
       end)
 
     {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
@@ -161,21 +161,26 @@ defmodule Exmaster.Q3.Master do
         {[], state}
 
       true ->
-        announce(from, classify(tag), ctx, now, state)
+        announce(from, classify(tag), ctx, now, state, :heartbeat)
     end
   end
 
   # A heartbeat, or an upstream master's list, says there is a server at
   # from, of class if it isn't listed.
-  defp announce(from, class, ctx, now, state) do
+  defp announce(from, class, ctx, now, state, by) do
     cond do
       entry = Store.lookup(ctx.store, from, now) ->
         # A heartbeat with another tag doesn't reclassify a listed server,
         # since heartbeats can be forged. The new tag applies once the
         # server has expired.
-        case entry.via == ctx.id && poll_for_heartbeat(state, ctx, from, now) do
+        poll =
+          if by == :heartbeat,
+            do: &poll_for_heartbeat/4,
+            else: &poll_for_list/4
+
+        case entry.via == ctx.id && poll.(state, ctx, from, now) do
           {:now, state} -> {[getinfo(from, entry.class, ctx, now)], state}
-          {:later, state} -> {[], state}
+          {_, state} -> {[], state}
           false -> {[], state}
         end
 
@@ -455,6 +460,17 @@ defmodule Exmaster.Q3.Master do
         :ok -> {:now, sent(state, addr, now, :check)}
         {:error, wait} -> {:later, defer(state, addr, now + wait, :check)}
       end
+    end
+  end
+
+  # A listed server on an upstream master's list: {:now, state} to ask it,
+  # or {:skip, state} inside the minute. It isn't put off as for a
+  # heartbeat: a list's servers are asked 50 a tick, and put off they would
+  # come due together. The next round asks it again.
+  defp poll_for_list(state, ctx, addr, now) do
+    case take_poll(ctx, addr, now) do
+      :ok -> {:now, sent(state, addr, now, :poll)}
+      {:error, _} -> {:skip, state}
     end
   end
 
