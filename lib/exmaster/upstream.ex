@@ -19,7 +19,9 @@ defmodule Exmaster.Upstream do
   takes 5 queries from an IP at once, then one every 3 seconds. A reply
   doesn't say which query it answers, so it goes with the last one sent to
   its master. Servers are asked at most 50 a tick, one a server however
-  many lists have it, as the first list that had it says.
+  many lists have it, as the first list that had it says. A server the protocol
+  can't ask yet goes back on the queue (`listed/3`), so the queue is the
+  only way a list's servers are asked, and the 50 hold.
   """
   alias Exmaster.Addr
 

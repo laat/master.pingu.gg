@@ -276,6 +276,59 @@ defmodule Exmaster.UpstreamTest do
     assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, _}], _} = Master.tick(plain, 72_000, q3)
   end
 
+  test "Quake 3: lists inside another store's 2 seconds keep to 50 a tick" do
+    alias Exmaster.Q3.Master
+    start_supervised!({Store, name: :exmaster_q3_test_upstream})
+    plain = ctx(:exmaster_q3)
+
+    labelled = %{
+      plain
+      | label: "UrbanTerror",
+        store: :exmaster_q3_test_upstream,
+        id: {{0, 0, 0, 0}, 27960}
+    }
+
+    {:ok, u} = Master.upstream(String.split("getservers 68"))
+    servers = for n <- 1..150, do: server(n)
+
+    # A round of addrs at now, then the ticks from now to now + 9 s: every
+    # getinfo they sent, at most 50 a tick, answered.
+    round = fn ctx, state, addrs, now ->
+      {[], state} = Master.pull([{@master, u}], ctx, now, state)
+      {[_query], state} = Master.tick(ctx, now, state)
+      packets = Q3.encode_list(addrs, false)
+
+      state =
+        Enum.reduce(packets, state, fn p, state ->
+          {[], state} = Master.handle_packet(p, @master, ctx, now, state)
+          state
+        end)
+
+      Enum.reduce(now..(now + 9_000)//1_000, {[], state}, fn t, {asked, state} ->
+        {sends, state} = Master.tick(ctx, t, state)
+        assert length(sends) <= 50
+
+        state =
+          Enum.reduce(sends, state, fn {"\xFF\xFF\xFF\xFFgetinfo " <> c, addr}, state ->
+            {[], state} = answer(ctx, state, addr, c, @info, t)
+            state
+          end)
+
+        {asked ++ Enum.map(sends, &elem(&1, 1)), state}
+      end)
+    end
+
+    {_, l} = round.(labelled, Master.init(0), servers, 0)
+    {_, q3} = round.(plain, Master.init(0), servers, 0)
+
+    # Rounds that line up, past the minute: the labelled store takes the 2
+    # seconds of the first 50, and the Quake 3 one asks them after the rest.
+    {asked, _} = round.(labelled, l, Enum.take(servers, 50), 70_000)
+    assert length(asked) == 50
+    {asked, _} = round.(plain, q3, servers, 70_000)
+    assert Enum.sort(asked) == servers
+  end
+
   describe "Quake 2 and QuakeWorld" do
     test "Quake 2: servers on a list get status, and are listed by their reply" do
       alias Exmaster.Q2.Master

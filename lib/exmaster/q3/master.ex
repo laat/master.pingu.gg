@@ -130,7 +130,7 @@ defmodule Exmaster.Q3.Master do
 
     {sends, state} =
       Enum.flat_map_reduce(probes, state, fn {addr, u}, state ->
-        announce(addr, u.class, ctx, now, state, :list)
+        announce(addr, u.class, ctx, now, state, {:list, u})
       end)
 
     {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
@@ -165,8 +165,8 @@ defmodule Exmaster.Q3.Master do
     end
   end
 
-  # A heartbeat, or an upstream master's list, says there is a server at
-  # from, of class if it isn't listed.
+  # A heartbeat, or upstream u's list ({:list, u}), says there is a server
+  # at from, of class if it isn't listed.
   defp announce(from, class, ctx, now, state, by) do
     cond do
       entry = Store.lookup(ctx.store, from, now) ->
@@ -174,11 +174,12 @@ defmodule Exmaster.Q3.Master do
         # since heartbeats can be forged. The new tag applies once the
         # server has expired.
         poll =
-          if by == :heartbeat,
-            do: &poll_for_heartbeat/4,
-            else: &poll_for_list/4
+          case by do
+            :heartbeat -> &poll_for_heartbeat(&1, ctx, from, now)
+            {:list, u} -> &poll_for_list(&1, ctx, from, now, u)
+          end
 
-        case entry.via == ctx.id && poll.(state, ctx, from, now) do
+        case entry.via == ctx.id && poll.(state) do
           {:now, state} -> {[getinfo(from, entry.class, ctx, now)], state}
           {_, state} -> {[], state}
           false -> {[], state}
@@ -463,17 +464,18 @@ defmodule Exmaster.Q3.Master do
     end
   end
 
-  # A listed server on an upstream master's list: {:now, state} to ask it,
-  # {:skip, state} inside the minute, or {:later, state} inside another
-  # store's 2 seconds. It isn't put off to the minute's end as for a
-  # heartbeat: a list's servers are asked 50 a tick, and put off they would
-  # come due together; the next round asks it again. The 2 seconds are put
-  # off, at most 50 a tick: two stores whose rounds line up would otherwise
-  # have one take them every round, and the other let the server expire.
-  defp poll_for_list(state, ctx, addr, now) do
+  # A listed server on upstream u's list: {:now, state} to ask it, {:skip,
+  # state} inside the minute, or {:later, state} inside another store's 2
+  # seconds. A list's servers only go out through the upstream queue, 50 a
+  # tick, so none of this is put off into state.deferred, where they would
+  # come due together. Inside the minute the next round asks it again.
+  # Inside the 2 seconds it goes back on the queue: two stores whose rounds
+  # line up would otherwise have one take them every round, and the other
+  # let the server expire.
+  defp poll_for_list(state, ctx, addr, now, u) do
     with :ok <- RateLimit.check(poll_key(ctx, addr), @gap, 1, now),
-         {:error, wait} <- take_poll(ctx, addr, now) do
-      {:later, defer(state, addr, now + wait, :poll)}
+         {:error, _} <- take_poll(ctx, addr, now) do
+      {:later, %{state | upstream: Upstream.listed(state.upstream, [addr], u)}}
     else
       :ok -> {:now, sent(state, addr, now, :poll)}
       {:error, _} -> {:skip, state}
