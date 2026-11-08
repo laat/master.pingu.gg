@@ -119,6 +119,111 @@ defmodule Exmaster.Config do
     base ++ labelled
   end
 
+  @upstream_masters %{
+    "q3" => Exmaster.Q3.Master,
+    "q2" => Exmaster.Q2.Master,
+    "qw" => Exmaster.QW.Master
+  }
+
+  @doc """
+  Parses the upstreams file (`EXMASTER_UPSTREAMS`), the other masters to
+  pull server lists from (`Exmaster.Upstream`), and gives each listener
+  its lines as `:upstreams`. Returns the listeners and the lines no
+  listener takes. A line is
+
+      master host[:port] [query]
+
+  where master is `q3`, `q3=<label>`, `q2` or `qw`, as in `listen`
+  without the port; host is a name or an IPv4 address, and port is the
+  protocol's master port by default (27950, 27900, 27000). A Quake 3 line
+  takes the query a client would send, `getservers` or `getserversExt` and
+  its arguments; Quake 2 and QuakeWorld have one query each. `#` starts a
+  comment.
+
+      q3              dpmaster.deathmask.net        getservers Xonotic 3 empty full
+      q3=UrbanTerror  master.urbanterror.info:27900 getservers 68 empty full
+      q2              master.quakeservers.net
+      qw              master.quakeworld.nu
+
+  The first listener of a master takes its lines, through the Quake 2
+  master on a shared socket. A line for a master that isn't listening is
+  left out, so one file can serve several `listen` settings.
+  """
+  def upstreams!(text, listeners) do
+    upstreams =
+      text
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.map(fn {line, n} ->
+        {line |> String.split("#", parts: 2) |> hd() |> String.trim(), n}
+      end)
+      |> Enum.reject(fn {line, _} -> line == "" end)
+      |> Enum.map(fn {line, n} -> upstream!(line, n) end)
+
+    taker = fn u -> Enum.find_index(listeners, &takes?(&1, u)) end
+    {taken, left} = Enum.split_with(upstreams, &(taker.(&1) != nil))
+    by_listener = Enum.group_by(taken, taker)
+
+    listeners =
+      listeners
+      |> Enum.with_index()
+      |> Enum.map(fn {l, i} -> Keyword.put(l, :upstreams, Map.get(by_listener, i, [])) end)
+
+    {listeners, left}
+  end
+
+  @doc "An upstream's master as its line names it: `q3`, `q3=<label>`, `q2` or `qw`."
+  def master_name(u) do
+    {name, _} = Enum.find(@upstream_masters, fn {_, m} -> m == u.master end)
+    if u.label, do: "#{name}=#{u.label}", else: name
+  end
+
+  defp takes?(l, u) do
+    l[:label] == u.label and
+      (l[:protocol] == u.master or
+         (l[:protocol] == Exmaster.Shared and u.master in l[:masters]))
+  end
+
+  defp upstream!(line, n) do
+    [master | rest] = String.split(line)
+
+    {name, label} =
+      case String.split(master, "=", parts: 2) do
+        [name, label] -> {name, label}
+        [name] -> {name, nil}
+      end
+
+    with [hostport | args] <- rest,
+         {:ok, protocol} <- Map.fetch(@upstream_masters, name),
+         :ok <- check(protocol, nil, label),
+         {:ok, query} <- protocol.upstream(args),
+         {:ok, host, port} <- upstream_host(hostport, query.port) do
+      Map.merge(query, %{master: protocol, label: label, host: host, port: port})
+    else
+      {:error, reason} ->
+        raise ArgumentError, "upstreams line #{n}: #{reason}"
+
+      _ ->
+        raise ArgumentError, "upstreams line #{n}: want q3[=label]|q2|qw host[:port] [query]"
+    end
+  end
+
+  defp upstream_host(s, default) do
+    case Regex.run(~r/^([^:\[\]]+)(?::(\d+))?$/, s) do
+      [_, host] ->
+        {:ok, host, default}
+
+      [_, host, port] ->
+        case String.to_integer(port) do
+          port when port in 1..65_535 -> {:ok, host, port}
+          _ -> {:error, "bad port"}
+        end
+
+      nil ->
+        {:error, "want host[:port], an IPv4 address or a name"}
+    end
+  end
+
   defp store(protocol, nil), do: protocol.store()
   defp store(protocol, label), do: :"#{protocol.store()}_#{label}"
 

@@ -9,7 +9,8 @@ defmodule Exmaster.QW.Master do
   last 10 seconds, once, and one that isn't a status doesn't count. The
   server is listed for `server_ttl` after each
   reply, and each heartbeat has it asked again (see "Asking listed
-  servers again" below).
+  servers again" below). A server on an upstream master's list is asked
+  as for a heartbeat.
 
   That keeps out servers that can't be reached, and makes a forged
   registration take a forged heartbeat and a forged reply. It is no proof
@@ -25,7 +26,7 @@ defmodule Exmaster.QW.Master do
   """
   @behaviour Exmaster.Protocol
 
-  alias Exmaster.{Addr, RateLimit, Store}
+  alias Exmaster.{Addr, RateLimit, Store, Upstream}
   alias Exmaster.QW
   import Bitwise
   require Logger
@@ -47,7 +48,8 @@ defmodule Exmaster.QW.Master do
   def store, do: :exmaster_qw
 
   @impl true
-  def init(now), do: %{pending: new_pending(now), deferred: %{}, checks: %{}}
+  def init(now),
+    do: %{pending: new_pending(now), deferred: %{}, checks: %{}, upstream: Upstream.new()}
 
   @impl true
   def handle_packet(data, from, ctx, now, state) do
@@ -56,6 +58,7 @@ defmodule Exmaster.QW.Master do
       :heartbeat -> heartbeat(from, ctx, now, state)
       :shutdown -> shutdown(from, ctx, now, state)
       {:status, payload} -> {status_reply(payload, from, ctx, now, state), state}
+      {:list, entries} -> {[], upstream_list(entries, from, now, state)}
       :other -> {[], state}
     end
   end
@@ -77,7 +80,44 @@ defmodule Exmaster.QW.Master do
         {QW.status(), addr}
       end
 
-    {sends, state}
+    {upstream, state} = upstream_tick(ctx, now, state)
+    {sends ++ upstream, state}
+  end
+
+  # Lists from upstream masters (Exmaster.Upstream): a server on one is
+  # asked as for a heartbeat. They list QTV relays and qwfwd proxies too,
+  # which are listed here as when they heartbeat.
+
+  @impl true
+  def upstream([]), do: {:ok, %{port: 27000, packet: QW.query()}}
+  def upstream(_), do: {:error, "a QuakeWorld master takes no query"}
+
+  @impl true
+  def pull(targets, _ctx, _now, state),
+    do: {[], %{state | upstream: Upstream.pull(state.upstream, targets)}}
+
+  defp upstream_list(entries, from, now, state) do
+    case Upstream.asked(state.upstream, from, now) do
+      nil ->
+        state
+
+      upstream ->
+        addrs = QW.decode_list(entries)
+        Logger.debug("qw: #{length(addrs)} servers from #{Addr.to_string(from)}")
+        %{state | upstream: Upstream.listed(state.upstream, addrs, upstream)}
+    end
+  end
+
+  defp upstream_tick(ctx, now, state) do
+    {queries, upstream} = Upstream.due(state.upstream, now)
+    {probes, upstream} = Upstream.probes(upstream)
+
+    {sends, state} =
+      Enum.flat_map_reduce(probes, %{state | upstream: upstream}, fn {addr, _}, state ->
+        heartbeat(addr, ctx, now, state)
+      end)
+
+    {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
   end
 
   defp heartbeat(from, ctx, now, state) do

@@ -5,7 +5,9 @@ QuakeWorld, Battlefield 1942, Medal of Honor: Allied Assault and Unreal
 Tournament (GameSpy), Battlefield Vietnam and Unreal Tournament 3 (GameSpy
 QR2), Unreal Tournament 2004 and Vintage Story. Game servers heartbeat it and clients ask it for server
 lists. It keeps the lists in memory (ETS) and nothing else: no
-database, no server browser, no upstream masters.
+database, no server browser. The Quake 3, Quake 2 and QuakeWorld masters
+can also pull other masters' lists and ask those servers themselves (see
+[Upstream masters](#upstream-masters)).
 [.gameservers/](.gameservers/README.md), apart from the project, runs
 real game servers against it in Docker.
 
@@ -40,6 +42,7 @@ file descriptor each, so the process needs a higher limit than the usual
 | Variable | Default | Meaning |
 |---|---|---|
 | `EXMASTER_LISTEN` | `q3:27950,q2:27900,qw:27000` | comma-separated `protocol:[host:]port[=label]`; protocols `q3`, `q2`, `qw`, `gs`, `gsl`, `qr2`, `sb`, `gp`, `ue2` and `vs` |
+| `EXMASTER_UPSTREAMS` | none | a file of other masters to pull server lists from (see [Upstream masters](#upstream-masters)); `upstreams.conf` has them |
 | `EXMASTER_PEERS` | none | comma-separated node names to share server lists with (see [Several nodes](#several-nodes)) |
 | `EXMASTER_MAX_SERVERS` | `16384` | servers per master, on each node |
 | `EXMASTER_MAX_PER_IP` | `32` | servers per IP address, per master, on each node |
@@ -90,6 +93,47 @@ Vintage Story's master, `vs`, is one TCP listener too, serving HTTP
 `http://host:8080/`. Registrations have to reach it directly, not
 through a proxy, since it lists a server at the connection's IP. It
 isn't in the default, and its lists hold only IPv4.
+
+### Upstream masters
+
+`EXMASTER_UPSTREAMS=upstreams.conf` has the Quake 3, Quake 2 and
+QuakeWorld masters pull the lists of the masters in the file, every 5
+minutes, and ask each server on them as if it had heartbeat: a `getinfo`
+with a challenge, or `status`. A server is listed once it answers, as one
+that heartbeats is, and stays listed while the upstream lists it and it
+answers. A server that heartbeats exmaster and is on a list is asked at
+most once a minute all the same.
+
+```
+# master          host[:port]                    query
+q3                dpmaster.deathmask.net         getservers Xonotic 3 empty full
+q3=UrbanTerror    master.urbanterror.info:27900  getservers 68 empty full
+q2                master.quakeservers.net
+qw                master.quakeworld.nu
+```
+
+The first word names the master that pulls the line, as in
+`EXMASTER_LISTEN` without the port, so a labelled game's lines go to its
+labelled listener; a line for a master that isn't listening is left out.
+The port is the protocol's master port by default. A Quake 3 line takes
+the query a client sends. The servers on its list are classed as the
+game the query names, or the built-in game of its protocol, or Quake 3,
+as if they had heartbeat with that game's tag (see
+[docs/quake3.md](docs/quake3.md#lists-from-upstream-masters)).
+`upstreams.conf` has the masters from pingu.gg's list that these three
+protocols can ask.
+
+Queries go out 2 seconds apart, and 5 apart to the same master, which
+keeps under dpmaster's flood protection. A reply is taken as a list only
+from the address of a master asked in the last 10 seconds, and goes with
+the last query sent to it. Servers on lists are asked at most 50 a
+second per listener, once each however many lists have them, and only at
+public addresses: lists have LAN addresses on them. Names are looked up
+for every round, IPv4 only. Each node pulls its own lists.
+
+GameSpy, QR2, UT2004 and Vintage Story servers are listed only once they
+register with exmaster, over their own connection or with an instance
+key, so there is nothing to pull for them.
 
 ### Several nodes
 
@@ -181,8 +225,10 @@ Exmaster.Supervisor
   own copy of the code that decides when a listed server is asked again;
   Quake 2 and QuakeWorld each have their own table of whom they asked.
   What is shared has no protocol in it: sockets, stores, rate limits,
-  sending a list over TCP within the reply budget (`Exmaster.Paid`), and
-  the bound on the servers TCP lists hold at once (`Exmaster.ListGate`).
+  sending a list over TCP within the reply budget (`Exmaster.Paid`), the
+  bound on the servers TCP lists hold at once (`Exmaster.ListGate`), and
+  the pacing of upstream queries and of the servers on their lists
+  (`Exmaster.Upstream`).
 
 ### Quake 3
 
@@ -316,10 +362,9 @@ A connection is one request. See
 
 ## What it doesn't do
 
-- Pulling lists from upstream masters, and the budget rules for them.
+- Pulling lists for GameSpy, QR2, UT2004 and Vintage Story.
 - Polling servers every 5 minutes, and `getstatus` for player lists.
-- A51 forwarding ports and duplicate ports. Both come from upstream
-  lists or need status replies.
+- A51 forwarding ports and duplicate ports. Both need status replies.
 - Surviving a restart: servers come back with their next heartbeat,
   within 5 minutes for ioquake3. With several nodes, the others' servers
   come back at once.

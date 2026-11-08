@@ -10,7 +10,8 @@ defmodule Exmaster.Q2.Master do
   The server is listed for `server_ttl` after
   each reply, and each heartbeat has it asked again (see "Asking listed
   servers again" below). The heartbeat's own copy of the status isn't
-  used: heartbeats can be forged with a listed server's address.
+  used: heartbeats can be forged with a listed server's address. A server
+  on an upstream master's list is asked as for a heartbeat.
 
   That keeps out servers that can't be reached, and makes a forged
   registration take a forged heartbeat and a forged reply. It is no proof
@@ -23,7 +24,7 @@ defmodule Exmaster.Q2.Master do
   """
   @behaviour Exmaster.Protocol
 
-  alias Exmaster.{Addr, RateLimit, Store}
+  alias Exmaster.{Addr, RateLimit, Store, Upstream}
   alias Exmaster.Q2
   import Bitwise
   require Logger
@@ -45,7 +46,8 @@ defmodule Exmaster.Q2.Master do
   def store, do: :exmaster_q2
 
   @impl true
-  def init(now), do: %{pending: new_pending(now), deferred: %{}, checks: %{}}
+  def init(now),
+    do: %{pending: new_pending(now), deferred: %{}, checks: %{}, upstream: Upstream.new()}
 
   @impl true
   def handle_packet(data, from, ctx, now, state) do
@@ -54,6 +56,7 @@ defmodule Exmaster.Q2.Master do
       {:oob, cmd, _} when cmd in ["heartbeat", "ping"] -> heartbeat(from, ctx, now, state)
       {:oob, "shutdown", _} -> shutdown(from, ctx, now, state)
       {:oob, "print", payload} -> {print(payload, from, ctx, now, state), state}
+      {:oob, "servers", entries} -> {[], upstream_list(entries, from, now, state)}
       _ -> {[], state}
     end
   end
@@ -75,7 +78,43 @@ defmodule Exmaster.Q2.Master do
         {Q2.status(), addr}
       end
 
-    {sends, state}
+    {upstream, state} = upstream_tick(ctx, now, state)
+    {sends ++ upstream, state}
+  end
+
+  # Lists from upstream masters (Exmaster.Upstream): a server on one is
+  # asked as for a heartbeat.
+
+  @impl true
+  def upstream([]), do: {:ok, %{port: 27900, packet: Q2.query()}}
+  def upstream(_), do: {:error, "a Quake 2 master takes no query"}
+
+  @impl true
+  def pull(targets, _ctx, _now, state),
+    do: {[], %{state | upstream: Upstream.pull(state.upstream, targets)}}
+
+  defp upstream_list(entries, from, now, state) do
+    case Upstream.asked(state.upstream, from, now) do
+      nil ->
+        state
+
+      upstream ->
+        addrs = Q2.decode_list(entries)
+        Logger.debug("q2: #{length(addrs)} servers from #{Addr.to_string(from)}")
+        %{state | upstream: Upstream.listed(state.upstream, addrs, upstream)}
+    end
+  end
+
+  defp upstream_tick(ctx, now, state) do
+    {queries, upstream} = Upstream.due(state.upstream, now)
+    {probes, upstream} = Upstream.probes(upstream)
+
+    {sends, state} =
+      Enum.flat_map_reduce(probes, %{state | upstream: upstream}, fn {addr, _}, state ->
+        heartbeat(addr, ctx, now, state)
+      end)
+
+    {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
   end
 
   defp heartbeat(from, ctx, now, state) do

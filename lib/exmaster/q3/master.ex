@@ -8,10 +8,12 @@ defmodule Exmaster.Q3.Master do
   stateless challenge (`Exmaster.Q3.Challenge`) and stores nothing; the
   server is listed once it answers, for `server_ttl`, and each heartbeat
   after that has it asked again (see "Asking listed servers again" below).
+  A server on an upstream master's list is asked as for a heartbeat (see
+  "Lists from upstream masters" below).
   """
   @behaviour Exmaster.Protocol
 
-  alias Exmaster.{Addr, RateLimit, Store}
+  alias Exmaster.{Addr, RateLimit, Store, Upstream}
   alias Exmaster.Q3
   alias Exmaster.Q3.Challenge
   alias Exmaster.Q3.Games
@@ -29,6 +31,8 @@ defmodule Exmaster.Q3.Master do
   # rotating through 50, 57, 59 and 60 to get onto every list.
   @max_protocols 8
   @hostname_length 63
+  # Upstream masters' replies to getservers and getserversExt.
+  @lists ["getserversResponse", "getserversExtResponse"]
 
   @impl true
   def name, do: "Quake 3"
@@ -40,7 +44,7 @@ defmodule Exmaster.Q3.Master do
   def store, do: :exmaster_q3
 
   @impl true
-  def init(_now), do: %{deferred: %{}, checks: %{}}
+  def init(_now), do: %{deferred: %{}, checks: %{}, upstream: Upstream.new()}
 
   @impl true
   def handle_packet(data, from, ctx, now, state) do
@@ -49,6 +53,7 @@ defmodule Exmaster.Q3.Master do
       {:ok, "infoResponse", payload} -> {info_response(payload, from, ctx, now), state}
       {:ok, "getservers", payload} -> {get_servers(payload, false, from, ctx, now), state}
       {:ok, "getserversExt", payload} -> {get_servers(payload, true, from, ctx, now), state}
+      {:ok, cmd, payload} when cmd in @lists -> {[], upstream_list(payload, from, now, state)}
       _ -> {[], state}
     end
   end
@@ -70,7 +75,65 @@ defmodule Exmaster.Q3.Master do
           RateLimit.take({:q3, :heartbeat, ip}, @heartbeat_limit, 1, now) == :ok,
           do: getinfo(addr, entry.class, ctx, now)
 
-    {polls ++ probes, state}
+    {upstream, state} = upstream_tick(ctx, now, state)
+    {polls ++ probes ++ upstream, state}
+  end
+
+  # Lists from upstream masters (Exmaster.Upstream). A server on one is
+  # asked as for a heartbeat with the tag its query implies: the game it
+  # names, built in or with a gamename of its own as DarkPlaces', or the
+  # built-in game of its protocol, or Quake 3's, which most id Tech 3 games
+  # heartbeat. A labelled listener names the game anyway.
+
+  @upstream_usage "want getservers|getserversExt [game] protocol [options]"
+
+  @impl true
+  def upstream([cmd | args]) when cmd in ["getservers", "getserversExt"] do
+    case Q3.parse_query(Enum.join(args, " "), cmd == "getserversExt") do
+      {:ok, q} -> {:ok, %{port: 27950, packet: Q3.packet(cmd, args), class: upstream_class(q)}}
+      :error -> {:error, @upstream_usage}
+    end
+  end
+
+  def upstream(_), do: {:error, @upstream_usage}
+
+  defp upstream_class(%{game: nil, protocol: protocol}) do
+    case Games.by_protocol(protocol) do
+      nil -> classify("QuakeArena-1")
+      game -> {:known, game.name}
+    end
+  end
+
+  defp upstream_class(%{game: game}),
+    do: if(Games.builtin?(game), do: {:known, game}, else: :darkplaces)
+
+  @impl true
+  def pull(targets, _ctx, _now, state),
+    do: {[], %{state | upstream: Upstream.pull(state.upstream, targets)}}
+
+  defp upstream_list(payload, from, now, state) do
+    case Upstream.asked(state.upstream, from, now) do
+      nil ->
+        state
+
+      upstream ->
+        addrs = Q3.decode_list(payload)
+        Logger.debug("q3: #{length(addrs)} servers from #{Addr.to_string(from)}")
+        %{state | upstream: Upstream.listed(state.upstream, addrs, upstream)}
+    end
+  end
+
+  defp upstream_tick(ctx, now, state) do
+    {queries, upstream} = Upstream.due(state.upstream, now)
+    {probes, upstream} = Upstream.probes(upstream)
+    state = %{state | upstream: upstream}
+
+    {sends, state} =
+      Enum.flat_map_reduce(probes, state, fn {addr, u}, state ->
+        announce(addr, u.class, ctx, now, state)
+      end)
+
+    {for({addr, u} <- queries, do: {u.packet, addr}) ++ sends, state}
   end
 
   # Classes, by the index the challenge carries. :known goes with the game
@@ -97,6 +160,15 @@ defmodule Exmaster.Q3.Master do
       not Q3.valid_name?(tag, Q3.max_name_length()) ->
         {[], state}
 
+      true ->
+        announce(from, classify(tag), ctx, now, state)
+    end
+  end
+
+  # A heartbeat, or an upstream master's list, says there is a server at
+  # from, of class if it isn't listed.
+  defp announce(from, class, ctx, now, state) do
+    cond do
       entry = Store.lookup(ctx.store, from, now) ->
         # A heartbeat with another tag doesn't reclassify a listed server,
         # since heartbeats can be forged. The new tag applies once the
@@ -108,7 +180,7 @@ defmodule Exmaster.Q3.Master do
         end
 
       RateLimit.take({:q3, :heartbeat, elem(from, 0)}, @heartbeat_limit, 1, now) == :ok ->
-        {[getinfo(from, classify(tag), ctx, now)], state}
+        {[getinfo(from, class, ctx, now)], state}
 
       true ->
         {[], state}
