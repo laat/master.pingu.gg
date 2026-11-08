@@ -20,11 +20,19 @@ defmodule Exmaster.QW do
   @doc "Asks a server for its serverinfo and clients."
   def status, do: @oob <> "status\n"
 
+  @doc "Asks another master for its list. It has no out-of-band prefix."
+  def query, do: "c\n"
+
+  @doc "The addresses in a `d` list's entries; those with port 0 are skipped."
+  def decode_list(entries),
+    do: for(<<a, b, c, d, port::16 <- entries>>, port != 0, do: {{a, b, c, d}, port})
+
   @doc """
-  What a packet is: `:query`, `:heartbeat`, `:shutdown`, `{:status, payload}`
-  or `:other`.
+  What a packet is: `:query`, `:heartbeat`, `:shutdown`, `{:status, payload}`,
+  `{:list, entries}` (another master's) or `:other`.
   """
   def classify(<<0xFF, 0xFF, 0xFF, 0xFF, "n", payload::binary>>), do: {:status, payload}
+  def classify(<<0xFF, 0xFF, 0xFF, 0xFF, "d\n", entries::binary>>), do: {:list, entries}
   def classify(<<0xFF, 0xFF, 0xFF, 0xFF, rest::binary>>), do: classify_plain(rest)
   def classify(data), do: classify_plain(data)
 
