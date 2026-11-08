@@ -464,11 +464,17 @@ defmodule Exmaster.Q3.Master do
   end
 
   # A listed server on an upstream master's list: {:now, state} to ask it,
-  # or {:skip, state} inside the minute. It isn't put off as for a
+  # {:skip, state} inside the minute, or {:later, state} inside another
+  # store's 2 seconds. It isn't put off to the minute's end as for a
   # heartbeat: a list's servers are asked 50 a tick, and put off they would
-  # come due together. The next round asks it again.
+  # come due together; the next round asks it again. The 2 seconds are put
+  # off, at most 50 a tick: two stores whose rounds line up would otherwise
+  # have one take them every round, and the other let the server expire.
   defp poll_for_list(state, ctx, addr, now) do
-    case take_poll(ctx, addr, now) do
+    with :ok <- RateLimit.check(poll_key(ctx, addr), @gap, 1, now),
+         {:error, wait} <- take_poll(ctx, addr, now) do
+      {:later, defer(state, addr, now + wait, :poll)}
+    else
       :ok -> {:now, sent(state, addr, now, :poll)}
       {:error, _} -> {:skip, state}
     end

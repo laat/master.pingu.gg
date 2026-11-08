@@ -241,6 +241,41 @@ defmodule Exmaster.UpstreamTest do
     end
   end
 
+  test "Quake 3: a list inside another store's 2 seconds has the server asked after them" do
+    alias Exmaster.Q3.Master
+    start_supervised!({Store, name: :exmaster_q3_test_upstream})
+    plain = ctx(:exmaster_q3)
+
+    labelled = %{
+      plain
+      | label: "UrbanTerror",
+        store: :exmaster_q3_test_upstream,
+        id: {{0, 0, 0, 0}, 27960}
+    }
+
+    {:ok, u} = Master.upstream(String.split("getservers 68"))
+
+    # Each store lists the server off its list at 0, the labelled one first.
+    listed = fn ctx, now ->
+      {[], state} = Master.pull([{@master, u}], ctx, now, Master.init(0))
+      {[_query], state} = Master.tick(ctx, now, state)
+      {[], state} = Master.handle_packet(q3_list([server(1)]), @master, ctx, now, state)
+      Master.tick(ctx, now, state)
+    end
+
+    for ctx <- [labelled, plain] do
+      {[{"\xFF\xFF\xFF\xFFgetinfo " <> c, _}], state} = listed.(ctx, 0)
+      {[], _} = answer(ctx, state, server(1), c, @info, 0)
+    end
+
+    # Rounds that line up, past the minute: the labelled store takes the 2
+    # seconds, and the Quake 3 one asks when they are over.
+    {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, _}], _} = listed.(labelled, 70_000)
+    {[], q3} = listed.(plain, 70_000)
+    assert {[], q3} = Master.tick(plain, 71_000, q3)
+    assert {[{"\xFF\xFF\xFF\xFFgetinfo " <> _, _}], _} = Master.tick(plain, 72_000, q3)
+  end
+
   describe "Quake 2 and QuakeWorld" do
     test "Quake 2: servers on a list get status, and are listed by their reply" do
       alias Exmaster.Q2.Master
