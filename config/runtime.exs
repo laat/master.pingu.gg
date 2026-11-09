@@ -4,6 +4,10 @@ if listen = System.get_env("EXMASTER_LISTEN") do
   config :exmaster, listen: listen
 end
 
+if upstreams = System.get_env("EXMASTER_UPSTREAMS") do
+  config :exmaster, upstreams: upstreams
+end
+
 if peers = System.get_env("EXMASTER_PEERS") do
   config :exmaster,
     peers:
