@@ -26,11 +26,6 @@ The `d` reply is split into packets of at most 1400 bytes, each with the
 header. There is no end marker and no room for IPv6, so the master
 listens on IPv4 only.
 
-With `EXMASTER_UPSTREAMS` (see the [README](../README.md#upstream-masters)),
-the master sends other QuakeWorld masters `c\n`, and treats each server on
-their `d` reply as a heartbeat from it. Their lists have QTV relays and
-qwfwd proxies on them, which are listed as when they heartbeat.
-
 A client line in the status reply is
 
 ```

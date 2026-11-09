@@ -63,17 +63,6 @@ defmodule Exmaster.Shared do
   defp master_for(<<type, _::binary-4, _::binary>>) when type in 1..9, do: QR2.Master
   defp master_for(_), do: Q2.Master
 
-  # Quake 2 is the one of them that pulls lists from upstream masters.
-  @impl true
-  def pull(targets, ctx, now, state) do
-    targets
-    |> Enum.group_by(fn {_, u} -> u.master end)
-    |> Enum.reduce({[], state}, fn {master, targets}, {sends, state} ->
-      {more, pstate} = master.pull(targets, ctx_for(master, ctx), now, state[master])
-      {sends ++ more, %{state | master => pstate}}
-    end)
-  end
-
   @impl true
   def tick(ctx, now, state) do
     Enum.reduce(ctx.masters, {[], state}, fn master, {sends, state} ->

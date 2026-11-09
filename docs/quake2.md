@@ -59,11 +59,6 @@ listed server says until its next reply. Leave `q2` out of
 `EXMASTER_LISTEN` on a network that doesn't drop packets with forged
 source addresses.
 
-With `EXMASTER_UPSTREAMS` (see the [README](../README.md#upstream-masters)),
-the master sends other Quake 2 masters `query`, and treats each server on
-their `servers` reply as a heartbeat from it. A forged list makes the
-master send no more than forged heartbeats do, under the same limits.
-
 Whom the master asked is kept in a fixed table of 65,536 slots, keyed by
 a salted hash of the address. Forged heartbeats from many addresses take
 slots rather than growing it. A real server whose slot gets taken is

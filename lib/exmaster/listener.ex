@@ -11,11 +11,6 @@ defmodule Exmaster.Listener do
   Protocols with a dual-stack family listen on `::` with `ipv6_v6only`
   off, and fall back to IPv4 where there is no IPv6.
 
-  A listener with upstream masters (`Exmaster.Upstream`) looks up their
-  names every 5 minutes and hands the protocol the round; the queries and
-  the servers on their lists are asked through its socket too, so the
-  challenges check and the replies come back to it.
-
   A packet that makes the protocol raise is dropped, and logged at most
   once a minute. Letting it crash the listener would let anyone who finds
   such a packet restart it in a loop until the supervisor gave up.
@@ -27,11 +22,6 @@ defmodule Exmaster.Listener do
 
   @tick 1_000
   @active 100
-  # Upstream masters are asked every 5 minutes, so a server that only they
-  # list is asked 3 times in its server_ttl. The first round waits up to a
-  # minute, so a listener that keeps restarting doesn't ask them each time.
-  @pull_interval :timer.minutes(5)
-  @pull_spread :timer.minutes(1)
 
   def child_spec(opts) do
     %{
@@ -64,16 +54,12 @@ defmodule Exmaster.Listener do
           server_ttl: Application.fetch_env!(:exmaster, :server_ttl)
         }
 
-        upstreams = Keyword.get(opts, :upstreams, [])
-
         Logger.info(
           "#{name(protocol, ctx)} master listening on #{family} port #{port}" <>
-            if(ctx.label, do: ", label #{ctx.label}", else: "") <>
-            if(upstreams != [], do: ", #{length(upstreams)} upstream queries", else: "")
+            if(ctx.label, do: ", label #{ctx.label}", else: "")
         )
 
         Process.send_after(self(), :tick, @tick)
-        if upstreams != [], do: Process.send_after(self(), :pull, :rand.uniform(@pull_spread))
 
         {:ok,
          %{
@@ -81,7 +67,6 @@ defmodule Exmaster.Listener do
            family: family,
            protocol: protocol,
            ctx: ctx,
-           upstreams: upstreams,
            pstate: protocol.init(Exmaster.now())
          }}
 
@@ -147,43 +132,6 @@ defmodule Exmaster.Listener do
     now = Exmaster.now()
     tick = fn -> state.protocol.tick(state.ctx, now, state.pstate) end
     {:noreply, run(state, now, tick, fn -> "tick" end)}
-  end
-
-  # A round of upstream queries. The names are looked up in a process of
-  # their own, since a lookup can take seconds, and every round, since
-  # masters move.
-  def handle_info(:pull, state) do
-    Process.send_after(self(), :pull, @pull_interval)
-    listener = self()
-    upstreams = state.upstreams
-    spawn(fn -> send(listener, {:pulled, resolve(upstreams)}) end)
-    {:noreply, state}
-  end
-
-  def handle_info({:pulled, targets}, state) do
-    now = Exmaster.now()
-    pull = fn -> state.protocol.pull(targets, state.ctx, now, state.pstate) end
-    {:noreply, run(state, now, pull, fn -> "pull" end)}
-  end
-
-  # {master address, upstream} for each upstream whose name has an IPv4
-  # address.
-  defp resolve(upstreams) do
-    for u <- upstreams,
-        ip = lookup(u),
-        ip != nil,
-        do: {{ip, u.port}, u}
-  end
-
-  defp lookup(u) do
-    case :inet.getaddr(String.to_charlist(u.host), :inet) do
-      {:ok, ip} ->
-        ip
-
-      {:error, reason} ->
-        Logger.warning("upstream #{u.host}: #{inspect(reason)}")
-        nil
-    end
   end
 
   defp run(state, now, f, what) do

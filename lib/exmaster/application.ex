@@ -21,18 +21,13 @@ defmodule Exmaster.Application do
   their next heartbeat, or with the next node's list.
   """
   use Application
-  require Logger
 
   @impl true
   def start(_type, _args) do
     Exmaster.Q3.Challenge.init_key()
     Exmaster.GS.Master.init_key()
     Exmaster.QR2.Master.init_key()
-
-    listeners =
-      Exmaster.Config.listeners!(Application.fetch_env!(:exmaster, :listen))
-      |> upstreams(Application.fetch_env!(:exmaster, :upstreams))
-
+    listeners = Exmaster.Config.listeners!(Application.fetch_env!(:exmaster, :listen))
     peers = Application.fetch_env!(:exmaster, :peers)
 
     listeners_sup = %{
@@ -63,19 +58,6 @@ defmodule Exmaster.Application do
         [listeners_sup]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Exmaster.Supervisor)
-  end
-
-  defp upstreams(listeners, nil), do: listeners
-
-  defp upstreams(listeners, path) do
-    {listeners, left} = Exmaster.Config.upstreams!(File.read!(path), listeners)
-
-    for u <- left do
-      master = Exmaster.Config.master_name(u)
-      Logger.info("upstream #{u.host}:#{u.port} left out: no #{master} listener")
-    end
-
-    listeners
   end
 
   # GameSpy lists and login, UT2004 and Vintage Story go over TCP;

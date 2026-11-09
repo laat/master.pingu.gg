@@ -20,13 +20,6 @@ defmodule Exmaster.Q2 do
   @doc "Asks a server for its serverinfo and players."
   def status, do: @oob <> "status\n"
 
-  @doc "Asks another master for its list. It has no out-of-band prefix."
-  def query, do: "query\n"
-
-  @doc "The addresses in a `servers` list's entries; those with port 0 are skipped."
-  def decode_list(entries),
-    do: for(<<a, b, c, d, port::16 <- entries>>, port != 0, do: {{a, b, c, d}, port})
-
   @doc """
   The command of a packet and what follows it: `{:oob, cmd, rest}` or
   `{:plain, cmd, rest}`. Quake 2 tokenizes the whole packet, so the command
