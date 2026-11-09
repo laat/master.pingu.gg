@@ -20,6 +20,30 @@ defmodule Exmaster.Addr do
   def ipv4?({{_, _, _, _}, _}), do: true
   def ipv4?(_), do: false
 
+  @doc """
+  Whether addr can be a server on the internet: not unspecified, loopback,
+  private, shared (CGNAT), link-local, multicast or reserved, and not port
+  0. Upstream masters' lists have such addresses, from servers that
+  heartbeat from a LAN, and the master shouldn't be had to send to its own
+  network.
+  """
+  def public?({_, 0}), do: false
+  def public?({{0, _, _, _}, _}), do: false
+  def public?({{10, _, _, _}, _}), do: false
+  def public?({{100, b, _, _}, _}) when b in 64..127, do: false
+  def public?({{127, _, _, _}, _}), do: false
+  def public?({{169, 254, _, _}, _}), do: false
+  def public?({{172, b, _, _}, _}) when b in 16..31, do: false
+  def public?({{192, 168, _, _}, _}), do: false
+  def public?({{a, _, _, _}, _}) when a >= 224, do: false
+  def public?({{_, _, _, _}, _}), do: true
+  def public?({{0, 0, 0, 0, 0, 0, 0, _}, _}), do: false
+  def public?({{0, 0, 0, 0, 0, 0xFFFF, _, _}, _}), do: false
+  def public?({{a, _, _, _, _, _, _, _}, _}) when (a &&& 0xFE00) == 0xFC00, do: false
+  def public?({{a, _, _, _, _, _, _, _}, _}) when (a &&& 0xFFC0) == 0xFE80, do: false
+  def public?({{a, _, _, _, _, _, _, _}, _}) when (a &&& 0xFF00) == 0xFF00, do: false
+  def public?(_), do: true
+
   @doc "The address's bytes, big-endian, then the port's."
   def to_binary({ip, port}), do: <<ip_bytes(ip)::binary, port::16>>
 

@@ -301,6 +301,30 @@ address of its own (`q3:203.0.113.2:27900=UrbanTerror`), and bind the
 other listeners on that port to their addresses: a listener on all
 addresses takes the port on all of them.
 
+### Lists from upstream masters
+
+With `EXMASTER_UPSTREAMS` (see the [README](../README.md#upstream-masters)),
+the master asks other masters with the `getservers` or `getserversExt` a
+line gives, and treats each server on the reply as a heartbeat from it:
+`getinfo` with a challenge if it isn't listed, a poll within the minute's
+allowance if it is. The class the challenge carries comes from the query,
+since there is no tag:
+
+- a query that names a built-in game (`getservers Tremulous 70`): that
+  game, as its tag would;
+- a query that names another game (`getservers Xonotic 3`): DarkPlaces,
+  so the server must send `gamename`;
+- an anonymous query (`getservers 84`): the built-in game of its
+  protocol, or Quake 3's, `QuakeArena-1`, which Jedi Outcast, Jedi Academy,
+  OpenArena and most other id Tech 3 games heartbeat.
+
+So a server pulled from a master is listed as it would be if it had
+heartbeat exmaster: Urban Terror servers on `master.ioquake3.org`'s list
+are Quake 3 on the Quake 3 master, and Urban Terror's on a labelled
+listener pulling `master.urbanterror.info`. The lists are read as dpmaster
+writes them, and as Call of Duty's masters (a NUL first, a bare `\EOT`
+last) and Daemon's (packet numbers and `[featured]` tags) do.
+
 ## Telling games apart
 
 Many id Tech 3 games heartbeat `QuakeArena-1`, send no `gamename` (or
